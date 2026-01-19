@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0f18;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#050508;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="demon-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#c084fc;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#a855f7;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="6" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Full background for maskable (safe zone is 80% centered) -->
+  <rect width="512" height="512" fill="url(#bg-gradient)"/>
+  
+  <!-- Demon symbol - centered and scaled for safe zone -->
+  <g filter="url(#glow)" transform="translate(256, 256) scale(0.7)">
+    <!-- Main D shape -->
+    <path d="M-80 -100 
+             L-80 100 
+             L20 100 
+             Q120 100 120 0 
+             Q120 -100 20 -100 
+             L-80 -100
+             M-40 -60
+             L20 -60
+             Q80 -60 80 0
+             Q80 60 20 60
+             L-40 60
+             Z" 
+          fill="url(#demon-gradient)"/>
+    
+    <!-- Left horn -->
+    <path d="M-90 -100 Q-130 -160 -100 -180 Q-70 -160 -80 -100" 
+          fill="url(#demon-gradient)"/>
+    
+    <!-- Right horn -->
+    <path d="M30 -100 Q60 -160 90 -180 Q120 -160 80 -100" 
+          fill="url(#demon-gradient)"/>
+    
+    <!-- Glowing eye -->
+    <circle cx="-10" cy="0" r="20" fill="#050508"/>
+    <circle cx="-10" cy="0" r="12" fill="#8b5cf6"/>
+    <circle cx="-6" cy="-4" r="4" fill="#fff" opacity="0.8"/>
+  </g>
+</svg>

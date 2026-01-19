@@ -4,6 +4,21 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Custom breakpoint for extra small devices */
+@layer utilities {
+  @media (min-width: 400px) {
+    .xs\:hidden {
+      display: none;
+    }
+    .xs\:inline {
+      display: inline;
+    }
+    .xs\:flex {
+      display: flex;
+    }
+  }
+}
+
 :root {
   --demon-bg: #050508;
   --demon-bg-light: #0f0f18;
@@ -196,4 +211,76 @@ body {
   );
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
+}
+
+/* PWA Safe Area Insets */
+.safe-area-inset {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.safe-area-inset-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-area-inset-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Touch optimization */
+.touch-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent text selection on interactive elements */
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Smooth scrolling for iOS */
+.scroll-smooth {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* PWA Standalone Mode Styles */
+@media all and (display-mode: standalone) {
+  .pwa-standalone-header {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* Responsive text utilities */
+@media (max-width: 640px) {
+  .text-responsive {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+}
+
+/* Active state for touch devices */
+@media (hover: none) and (pointer: coarse) {
+  .hover\:bg-demon-primary\/10:active {
+    background-color: rgba(139, 92, 246, 0.1);
+  }
+  
+  .hover\:bg-demon-primary\/20:active {
+    background-color: rgba(139, 92, 246, 0.2);
+  }
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

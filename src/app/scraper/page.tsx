@@ -15,9 +15,11 @@ import {
   TrendingUp,
   Calendar,
   BarChart3,
+  Download,
 } from "lucide-react";
 import { NetworkBackground } from "@/components/background/NetworkBackground";
 import { ModMenuSidebar } from "@/components/layout/ModMenuSidebar";
+import { MobileSidebar } from "@/components/layout/MobileSidebar";
 import { HUDOverlay } from "@/components/layout/HUDOverlay";
 import { NeonCard } from "@/components/ui/NeonCard";
 import { NeonButton } from "@/components/ui/NeonButton";
@@ -95,6 +97,22 @@ const initialScrapers: ScraperConfig[] = [
 export default function ScraperPage() {
   const [scrapers, setScrapers] = useState<ScraperConfig[]>(initialScrapers);
   const [selectedScraper, setSelectedScraper] = useState<string | null>(null);
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+  // PWA Install prompt handler
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+      setShowInstallPrompt(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    };
+  }, []);
 
   // Simulate progress updates
   useEffect(() => {
@@ -119,6 +137,16 @@ export default function ScraperPage() {
 
     return () => clearInterval(interval);
   }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === "accepted") {
+      setShowInstallPrompt(false);
+    }
+    setDeferredPrompt(null);
+  };
 
   const getStatusIcon = (status: ScraperConfig["status"]) => {
     switch (status) {
@@ -195,119 +223,172 @@ export default function ScraperPage() {
       <NetworkBackground />
       <HUDOverlay />
 
-      <div className="relative z-10 flex min-h-screen pt-14">
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block">
         <ModMenuSidebar />
+      </div>
 
-        <div className="flex-1 ml-64 p-8 overflow-auto h-[calc(100vh-3.5rem)]">
-          <div className="space-y-6">
-            {/* Header */}
+      {/* Mobile Sidebar */}
+      <MobileSidebar />
+
+      <div className="relative z-10 flex min-h-screen pt-14">
+        {/* Main content area - responsive padding and margin */}
+        <div className="flex-1 lg:ml-64 p-4 sm:p-6 lg:p-8 
+                        pt-[4.5rem] lg:pt-4
+                        pb-24 lg:pb-8
+                        overflow-auto h-[calc(100vh-3.5rem)]">
+          <div className="space-y-4 sm:space-y-6 max-w-7xl mx-auto">
+            
+            {/* Install App Banner - PWA */}
+            <AnimatePresence>
+              {showInstallPrompt && (
+                <motion.div
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="glass rounded-2xl p-4 border border-demon-primary/20 flex flex-col sm:flex-row items-start sm:items-center gap-3"
+                >
+                  <div className="flex items-center gap-3 flex-1">
+                    <div className="w-10 h-10 rounded-xl bg-demon-primary/20 flex items-center justify-center shrink-0">
+                      <Download className="w-5 h-5 text-demon-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-demon-text">Install DEMON OS</p>
+                      <p className="text-xs text-demon-text-muted truncate">
+                        Install as app for quick access and offline use
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 w-full sm:w-auto">
+                    <button
+                      onClick={() => setShowInstallPrompt(false)}
+                      className="flex-1 sm:flex-none px-4 py-2 text-sm text-demon-text-muted hover:text-demon-text transition-colors"
+                    >
+                      Later
+                    </button>
+                    <button
+                      onClick={handleInstallApp}
+                      className="flex-1 sm:flex-none px-4 py-2 text-sm font-medium bg-demon-primary text-white rounded-xl hover:bg-demon-primary/90 transition-colors"
+                    >
+                      Install
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Header - Responsive */}
             <motion.div
-              className="flex items-center justify-between"
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
             >
               <div>
-                <h1 className="text-2xl font-semibold text-demon-text">
+                <h1 className="text-xl sm:text-2xl font-semibold text-demon-text">
                   Scraper Control
                 </h1>
-                <p className="text-sm text-demon-text-muted mt-1">
+                <p className="text-xs sm:text-sm text-demon-text-muted mt-1">
                   Manage and monitor your Apify scrapers
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <NeonButton
                   variant="primary"
                   icon={<Play className="w-4 h-4" />}
                   onClick={() => scrapers.filter(s => s.enabled && s.status !== "running").forEach(s => startScraper(s.id))}
+                  className="flex-1 sm:flex-none text-sm py-2 sm:py-2.5"
                 >
-                  Run All
+                  <span className="hidden xs:inline">Run All</span>
+                  <span className="xs:hidden">Run</span>
                 </NeonButton>
                 <NeonButton
                   variant="secondary"
                   icon={<Square className="w-4 h-4" />}
                   onClick={() => scrapers.forEach(s => stopScraper(s.id))}
+                  className="flex-1 sm:flex-none text-sm py-2 sm:py-2.5"
                 >
-                  Stop All
+                  <span className="hidden xs:inline">Stop All</span>
+                  <span className="xs:hidden">Stop</span>
                 </NeonButton>
               </div>
             </motion.div>
 
-            {/* Stats Overview */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Stats Overview - Responsive Grid */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               <motion.div
-                className="p-4 rounded-2xl glass border border-demon-primary/10"
+                className="p-3 sm:p-4 rounded-xl sm:rounded-2xl glass border border-demon-primary/10"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-demon-primary/20 flex items-center justify-center">
-                    <RefreshCw className="w-5 h-5 text-demon-primary" />
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-demon-primary/20 flex items-center justify-center shrink-0">
+                    <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 text-demon-primary" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-semibold text-demon-text">{runningCount}</p>
-                    <p className="text-xs text-demon-text-muted">Active Scrapers</p>
+                  <div className="min-w-0">
+                    <p className="text-lg sm:text-2xl font-semibold text-demon-text">{runningCount}</p>
+                    <p className="text-[10px] sm:text-xs text-demon-text-muted truncate">Active Scrapers</p>
                   </div>
                 </div>
               </motion.div>
 
               <motion.div
-                className="p-4 rounded-2xl glass border border-demon-primary/10"
+                className="p-3 sm:p-4 rounded-xl sm:rounded-2xl glass border border-demon-primary/10"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.15 }}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-demon-success/20 flex items-center justify-center">
-                    <BarChart3 className="w-5 h-5 text-demon-success" />
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-demon-success/20 flex items-center justify-center shrink-0">
+                    <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-demon-success" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-semibold text-demon-text">{totalItems.toLocaleString()}</p>
-                    <p className="text-xs text-demon-text-muted">Total Items</p>
+                  <div className="min-w-0">
+                    <p className="text-lg sm:text-2xl font-semibold text-demon-text truncate">{totalItems.toLocaleString()}</p>
+                    <p className="text-[10px] sm:text-xs text-demon-text-muted truncate">Total Items</p>
                   </div>
                 </div>
               </motion.div>
 
               <motion.div
-                className="p-4 rounded-2xl glass border border-demon-primary/10"
+                className="p-3 sm:p-4 rounded-xl sm:rounded-2xl glass border border-demon-primary/10"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-demon-warning/20 flex items-center justify-center">
-                    <TrendingUp className="w-5 h-5 text-demon-warning" />
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-demon-warning/20 flex items-center justify-center shrink-0">
+                    <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-demon-warning" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-semibold text-demon-text">
+                  <div className="min-w-0">
+                    <p className="text-lg sm:text-2xl font-semibold text-demon-text">
                       {scrapers.filter(s => s.status === "running").reduce((acc, s) => acc + s.avgSpeed, 0)}
                     </p>
-                    <p className="text-xs text-demon-text-muted">Items/min</p>
+                    <p className="text-[10px] sm:text-xs text-demon-text-muted truncate">Items/min</p>
                   </div>
                 </div>
               </motion.div>
 
               <motion.div
-                className="p-4 rounded-2xl glass border border-demon-primary/10"
+                className="p-3 sm:p-4 rounded-xl sm:rounded-2xl glass border border-demon-primary/10"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.25 }}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-demon-accent/20 flex items-center justify-center">
-                    <Calendar className="w-5 h-5 text-demon-accent" />
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-demon-accent/20 flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-demon-accent" />
                   </div>
-                  <div>
-                    <p className="text-2xl font-semibold text-demon-text">24h</p>
-                    <p className="text-xs text-demon-text-muted">Uptime</p>
+                  <div className="min-w-0">
+                    <p className="text-lg sm:text-2xl font-semibold text-demon-text">24h</p>
+                    <p className="text-[10px] sm:text-xs text-demon-text-muted truncate">Uptime</p>
                   </div>
                 </div>
               </motion.div>
             </div>
 
-            {/* Scrapers Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Scrapers Grid - Responsive */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
               <AnimatePresence>
                 {scrapers.map((scraper, index) => (
                   <motion.div
@@ -319,7 +400,7 @@ export default function ScraperPage() {
                   >
                     <NeonCard
                       variant={selectedScraper === scraper.id ? "intense" : "default"}
-                      className="cursor-pointer"
+                      className="cursor-pointer touch-manipulation"
                       onClick={() =>
                         setSelectedScraper(
                           selectedScraper === scraper.id ? null : scraper.id
@@ -327,18 +408,18 @@ export default function ScraperPage() {
                       }
                     >
                       {/* Card Header */}
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-demon-bg flex items-center justify-center border border-demon-primary/20">
+                      <div className="flex items-start sm:items-center justify-between gap-3 mb-4">
+                        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-demon-bg flex items-center justify-center border border-demon-primary/20 shrink-0">
                             {getStatusIcon(scraper.status)}
                           </div>
-                          <div>
-                            <h3 className="font-semibold text-demon-text">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-semibold text-demon-text text-sm sm:text-base truncate">
                               {scraper.name}
                             </h3>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <Globe className="w-3 h-3 text-demon-text-muted" />
-                              <span className="text-xs text-demon-text-muted">
+                            <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5">
+                              <Globe className="w-3 h-3 text-demon-text-muted shrink-0" />
+                              <span className="text-[10px] sm:text-xs text-demon-text-muted truncate">
                                 {scraper.url}
                               </span>
                             </div>
@@ -355,8 +436,8 @@ export default function ScraperPage() {
                       {/* Progress */}
                       <div className="mb-4">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs text-demon-text-muted">Progress</span>
-                          <span className="text-xs font-mono text-demon-accent">
+                          <span className="text-[10px] sm:text-xs text-demon-text-muted">Progress</span>
+                          <span className="text-[10px] sm:text-xs font-mono text-demon-accent">
                             {Math.round(scraper.progress)}%
                           </span>
                         </div>
@@ -375,34 +456,35 @@ export default function ScraperPage() {
                         />
                       </div>
 
-                      {/* Stats */}
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-4">
-                          <div>
+                      {/* Stats & Controls */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm">
+                        <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+                          <div className="text-xs sm:text-sm">
                             <span className="text-demon-text-muted">Items: </span>
                             <span className="font-mono text-demon-text">
                               {scraper.itemsScraped.toLocaleString()}
                             </span>
                           </div>
                           <div className="flex items-center gap-1">
-                            <span className={`font-medium ${getStatusColor(scraper.status)}`}>
+                            <span className={`font-medium text-xs sm:text-sm ${getStatusColor(scraper.status)}`}>
                               {getStatusLabel(scraper.status)}
                             </span>
                           </div>
                         </div>
 
-                        {/* Controls */}
-                        <div className="flex items-center gap-2">
+                        {/* Controls - Touch optimized */}
+                        <div className="flex items-center gap-2 justify-end">
                           {scraper.status === "running" ? (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 pauseScraper(scraper.id);
                               }}
-                              className="p-2 rounded-lg bg-demon-warning/10 text-demon-warning 
-                                       hover:bg-demon-warning/20 transition-colors"
+                              className="p-2.5 sm:p-2 rounded-xl sm:rounded-lg bg-demon-warning/10 text-demon-warning 
+                                       active:bg-demon-warning/30 transition-colors touch-manipulation"
+                              aria-label="Pause scraper"
                             >
-                              <Pause className="w-4 h-4" />
+                              <Pause className="w-5 h-5 sm:w-4 sm:h-4" />
                             </button>
                           ) : (
                             <button
@@ -410,11 +492,12 @@ export default function ScraperPage() {
                                 e.stopPropagation();
                                 startScraper(scraper.id);
                               }}
-                              className="p-2 rounded-lg bg-demon-success/10 text-demon-success 
-                                       hover:bg-demon-success/20 transition-colors"
+                              className="p-2.5 sm:p-2 rounded-xl sm:rounded-lg bg-demon-success/10 text-demon-success 
+                                       active:bg-demon-success/30 transition-colors touch-manipulation"
                               disabled={!scraper.enabled}
+                              aria-label="Start scraper"
                             >
-                              <Play className="w-4 h-4" />
+                              <Play className="w-5 h-5 sm:w-4 sm:h-4" />
                             </button>
                           )}
                           <button
@@ -422,17 +505,19 @@ export default function ScraperPage() {
                               e.stopPropagation();
                               stopScraper(scraper.id);
                             }}
-                            className="p-2 rounded-lg bg-demon-danger/10 text-demon-danger 
-                                     hover:bg-demon-danger/20 transition-colors"
+                            className="p-2.5 sm:p-2 rounded-xl sm:rounded-lg bg-demon-danger/10 text-demon-danger 
+                                     active:bg-demon-danger/30 transition-colors touch-manipulation"
+                            aria-label="Stop scraper"
                           >
-                            <Square className="w-4 h-4" />
+                            <Square className="w-5 h-5 sm:w-4 sm:h-4" />
                           </button>
                           <button
                             onClick={(e) => e.stopPropagation()}
-                            className="p-2 rounded-lg bg-demon-primary/10 text-demon-primary 
-                                     hover:bg-demon-primary/20 transition-colors"
+                            className="p-2.5 sm:p-2 rounded-xl sm:rounded-lg bg-demon-primary/10 text-demon-primary 
+                                     active:bg-demon-primary/30 transition-colors touch-manipulation"
+                            aria-label="Settings"
                           >
-                            <Settings className="w-4 h-4" />
+                            <Settings className="w-5 h-5 sm:w-4 sm:h-4" />
                           </button>
                         </div>
                       </div>
@@ -446,34 +531,34 @@ export default function ScraperPage() {
                             exit={{ height: 0, opacity: 0 }}
                             className="mt-4 pt-4 border-t border-demon-primary/10"
                           >
-                            <div className="grid grid-cols-3 gap-4 text-sm">
-                              <div className="p-3 rounded-xl bg-demon-bg/50">
-                                <span className="text-demon-text-muted block mb-1 text-xs">
+                            <div className="grid grid-cols-3 gap-2 sm:gap-4 text-sm">
+                              <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-demon-bg/50">
+                                <span className="text-demon-text-muted block mb-1 text-[10px] sm:text-xs">
                                   Max Pages
                                 </span>
-                                <span className="font-mono text-demon-text">
+                                <span className="font-mono text-demon-text text-xs sm:text-sm">
                                   {scraper.settings.maxPages}
                                 </span>
                               </div>
-                              <div className="p-3 rounded-xl bg-demon-bg/50">
-                                <span className="text-demon-text-muted block mb-1 text-xs">
+                              <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-demon-bg/50">
+                                <span className="text-demon-text-muted block mb-1 text-[10px] sm:text-xs">
                                   Delay
                                 </span>
-                                <span className="font-mono text-demon-text">
+                                <span className="font-mono text-demon-text text-xs sm:text-sm">
                                   {scraper.settings.delay}ms
                                 </span>
                               </div>
-                              <div className="p-3 rounded-xl bg-demon-bg/50">
-                                <span className="text-demon-text-muted block mb-1 text-xs">
+                              <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-demon-bg/50">
+                                <span className="text-demon-text-muted block mb-1 text-[10px] sm:text-xs">
                                   Retries
                                 </span>
-                                <span className="font-mono text-demon-text">
+                                <span className="font-mono text-demon-text text-xs sm:text-sm">
                                   {scraper.settings.retries}
                                 </span>
                               </div>
                             </div>
                             {scraper.lastRun && (
-                              <div className="mt-3 flex items-center gap-2 text-xs text-demon-text-muted">
+                              <div className="mt-3 flex items-center gap-2 text-[10px] sm:text-xs text-demon-text-muted">
                                 <Clock className="w-3 h-3" />
                                 <span>
                                   Last run: {scraper.lastRun.toLocaleString()}
@@ -493,4 +578,10 @@ export default function ScraperPage() {
       </div>
     </main>
   );
+}
+
+// Type for the beforeinstallprompt event
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
