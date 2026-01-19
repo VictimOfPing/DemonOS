@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import "@/styles/globals.css";
-import "@/styles/glitch.css";
 import { APP_NAME, APP_VERSION } from "@/lib/constants";
 import { ToastProvider } from "@/components/ui/Toast";
 
@@ -23,10 +22,8 @@ export default function RootLayout({
         <ToastProvider>
           {children}
         </ToastProvider>
-        {/* Global overlay effects */}
-        <div className="scanlines" aria-hidden="true" />
+        {/* Subtle vignette effect */}
         <div className="vignette" aria-hidden="true" />
-        <div className="noise-overlay" aria-hidden="true" />
       </body>
     </html>
   );

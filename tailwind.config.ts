@@ -10,12 +10,13 @@ const config: Config = {
     extend: {
       colors: {
         demon: {
-          bg: "#0a0a0f",
-          "bg-light": "#12121a",
+          bg: "#050508",
+          "bg-light": "#0f0f18",
+          "bg-card": "#12121c",
           primary: "#8b5cf6",
-          accent: "#c084fc",
-          glow: "#a855f7",
-          text: "#e2e8f0",
+          accent: "#a855f7",
+          glow: "#c084fc",
+          text: "#f1f5f9",
           "text-muted": "#94a3b8",
           danger: "#ef4444",
           success: "#22c55e",
@@ -23,58 +24,48 @@ const config: Config = {
         },
       },
       fontFamily: {
+        sans: ["Inter", "system-ui", "sans-serif"],
         mono: ["JetBrains Mono", "Fira Code", "monospace"],
       },
       animation: {
         "pulse-glow": "pulse-glow 2s ease-in-out infinite",
-        "glitch": "glitch 0.3s ease-in-out",
-        "flicker": "flicker 0.15s infinite",
-        "scanline": "scanline 8s linear infinite",
-        "matrix-fall": "matrix-fall 20s linear infinite",
         "float": "float 6s ease-in-out infinite",
-        "typing": "typing 3.5s steps(40, end)",
+        "fade-in": "fade-in 0.5s ease-out",
+        "slide-up": "slide-up 0.3s ease-out",
+        "slide-down": "slide-down 0.3s ease-out",
       },
       keyframes: {
         "pulse-glow": {
           "0%, 100%": {
-            boxShadow: "0 0 5px var(--tw-shadow-color), 0 0 10px var(--tw-shadow-color), 0 0 15px var(--tw-shadow-color)",
+            boxShadow: "0 0 5px var(--tw-shadow-color), 0 0 10px var(--tw-shadow-color)",
           },
           "50%": {
-            boxShadow: "0 0 10px var(--tw-shadow-color), 0 0 20px var(--tw-shadow-color), 0 0 30px var(--tw-shadow-color)",
+            boxShadow: "0 0 10px var(--tw-shadow-color), 0 0 20px var(--tw-shadow-color)",
           },
-        },
-        glitch: {
-          "0%": { transform: "translate(0)" },
-          "20%": { transform: "translate(-2px, 2px)" },
-          "40%": { transform: "translate(-2px, -2px)" },
-          "60%": { transform: "translate(2px, 2px)" },
-          "80%": { transform: "translate(2px, -2px)" },
-          "100%": { transform: "translate(0)" },
-        },
-        flicker: {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.8" },
-        },
-        scanline: {
-          "0%": { transform: "translateY(-100%)" },
-          "100%": { transform: "translateY(100%)" },
-        },
-        "matrix-fall": {
-          "0%": { transform: "translateY(-100%)" },
-          "100%": { transform: "translateY(100vh)" },
         },
         float: {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-10px)" },
         },
-        typing: {
-          "from": { width: "0" },
-          "to": { width: "100%" },
+        "fade-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        "slide-up": {
+          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "slide-down": {
+          "0%": { opacity: "0", transform: "translateY(-10px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
         },
       },
       backgroundImage: {
         "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
-        "grid-pattern": "linear-gradient(to right, rgba(139, 92, 246, 0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(139, 92, 246, 0.1) 1px, transparent 1px)",
+      },
+      borderRadius: {
+        "xl": "12px",
+        "2xl": "16px",
       },
     },
   },

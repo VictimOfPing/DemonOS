@@ -17,36 +17,32 @@ interface ProgressBarProps {
 
 const variants = {
   default: {
-    bar: "from-demon-primary via-demon-accent to-demon-primary",
-    glow: "shadow-[0_0_10px_rgba(139,92,246,0.5)]",
+    bar: "from-demon-primary to-demon-accent",
     text: "text-demon-accent",
   },
   success: {
-    bar: "from-demon-success via-emerald-400 to-demon-success",
-    glow: "shadow-[0_0_10px_rgba(34,197,94,0.5)]",
+    bar: "from-demon-success to-emerald-400",
     text: "text-demon-success",
   },
   danger: {
-    bar: "from-demon-danger via-red-400 to-demon-danger",
-    glow: "shadow-[0_0_10px_rgba(239,68,68,0.5)]",
+    bar: "from-demon-danger to-red-400",
     text: "text-demon-danger",
   },
   warning: {
-    bar: "from-demon-warning via-amber-400 to-demon-warning",
-    glow: "shadow-[0_0_10px_rgba(245,158,11,0.5)]",
+    bar: "from-demon-warning to-amber-400",
     text: "text-demon-warning",
   },
 };
 
 const sizes = {
-  sm: "h-1",
+  sm: "h-1.5",
   md: "h-2",
   lg: "h-3",
 };
 
 /**
- * Animated progress bar with neon glow
- * Supports multiple variants and animated/striped styles
+ * Clean progress bar with smooth animations
+ * Professional design without excessive glow
  */
 export function ProgressBar({
   value,
@@ -63,7 +59,6 @@ export function ProgressBar({
   const percentage = Math.min(100, Math.max(0, (value / max) * 100));
   const variantStyles = variants[variant];
 
-  // Animate value count-up
   useEffect(() => {
     if (!animated) {
       setDisplayValue(value);
@@ -92,17 +87,17 @@ export function ProgressBar({
   }, [value, animated]);
 
   return (
-    <div className="w-full space-y-1">
+    <div className="w-full space-y-2">
       {/* Header */}
       {(label || showValue) && (
         <div className="flex items-center justify-between">
           {label && (
-            <span className="text-xs font-mono text-demon-text-muted uppercase tracking-wider">
+            <span className="text-sm text-demon-text-muted">
               {label}
             </span>
           )}
           {showValue && (
-            <span className={clsx("text-sm font-mono font-bold", variantStyles.text)}>
+            <span className={clsx("text-sm font-mono", variantStyles.text)}>
               {Math.round(displayValue)}%
             </span>
           )}
@@ -113,7 +108,7 @@ export function ProgressBar({
       <div
         className={clsx(
           "relative w-full rounded-full overflow-hidden",
-          "bg-demon-bg-light border border-demon-primary/20",
+          "bg-demon-bg-light",
           sizes[size]
         )}
       >
@@ -123,7 +118,6 @@ export function ProgressBar({
             "absolute inset-y-0 left-0 rounded-full",
             "bg-gradient-to-r",
             variantStyles.bar,
-            variantStyles.glow,
             striped && "bg-[length:20px_20px]"
           )}
           initial={{ width: 0 }}
@@ -134,11 +128,11 @@ export function ProgressBar({
               ? {
                   backgroundImage: `linear-gradient(
                     45deg,
-                    rgba(255,255,255,0.1) 25%,
+                    rgba(255,255,255,0.15) 25%,
                     transparent 25%,
                     transparent 50%,
-                    rgba(255,255,255,0.1) 50%,
-                    rgba(255,255,255,0.1) 75%,
+                    rgba(255,255,255,0.15) 50%,
+                    rgba(255,255,255,0.15) 75%,
                     transparent 75%,
                     transparent
                   )`,
@@ -148,44 +142,7 @@ export function ProgressBar({
               : {}
           }
         />
-
-        {/* Glow effect at the end */}
-        <motion.div
-          className={clsx(
-            "absolute top-0 bottom-0 w-4 rounded-full blur-sm",
-            "bg-gradient-to-r from-transparent",
-            variant === "default" && "to-demon-accent",
-            variant === "success" && "to-demon-success",
-            variant === "danger" && "to-demon-danger",
-            variant === "warning" && "to-demon-warning"
-          )}
-          initial={{ left: 0 }}
-          animate={{ left: `calc(${percentage}% - 1rem)` }}
-          transition={{ duration: animated ? 0.5 : 0, ease: "easeOut" }}
-          style={{ opacity: percentage > 5 ? 1 : 0 }}
-        />
-
-        {/* Pulse at 100% */}
-        {percentage >= 100 && (
-          <motion.div
-            className="absolute inset-0 rounded-full bg-white/20"
-            animate={{ opacity: [0, 0.3, 0] }}
-            transition={{ duration: 1, repeat: Infinity }}
-          />
-        )}
       </div>
-
-      {/* Status indicator */}
-      {percentage >= 100 && (
-        <motion.div
-          className="flex items-center gap-1 text-[10px] text-demon-success font-mono"
-          initial={{ opacity: 0, y: -5 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-demon-success animate-pulse" />
-          COMPLETE
-        </motion.div>
-      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { MatrixRain } from "@/components/background/MatrixRain";
+import { NetworkBackground } from "@/components/background/NetworkBackground";
 import { ModMenuSidebar } from "@/components/layout/ModMenuSidebar";
 import { HUDOverlay } from "@/components/layout/HUDOverlay";
 import { Dashboard } from "@/components/dashboard/Dashboard";
@@ -8,19 +8,19 @@ import { Dashboard } from "@/components/dashboard/Dashboard";
 export default function Home() {
   return (
     <main className="relative min-h-screen w-full">
-      {/* Background Effects */}
-      <MatrixRain />
+      {/* Professional Network Background */}
+      <NetworkBackground />
       
-      {/* HUD Overlay - Top bar */}
+      {/* Top Header */}
       <HUDOverlay />
       
       {/* Main Layout */}
-      <div className="flex min-h-screen pt-12">
-        {/* Mod Menu Sidebar */}
+      <div className="flex min-h-screen pt-14">
+        {/* Sidebar */}
         <ModMenuSidebar />
         
         {/* Main Content Area */}
-        <div className="flex-1 ml-64 p-6 overflow-auto h-[calc(100vh-3rem)]">
+        <div className="flex-1 ml-64 p-8 overflow-auto h-[calc(100vh-3.5rem)]">
           <Dashboard />
         </div>
       </div>

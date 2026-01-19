@@ -10,17 +10,16 @@ import {
   TrendingUp,
   Server,
   Cpu,
-  HardDrive
+  HardDrive,
+  Clock,
+  CheckCircle
 } from "lucide-react";
 import { StatsCard } from "./StatsCard";
 import { ActivityFeed } from "./ActivityFeed";
-import { RadarView } from "./RadarView";
 import { NeonCard } from "../ui/NeonCard";
 import { ProgressBar } from "../ui/ProgressBar";
 import { Terminal, createTerminalLine } from "../ui/Terminal";
-import { GlitchText } from "../ui/GlitchText";
 
-// Activity item type
 interface ActivityItem {
   id: string;
   type: "scrape" | "success" | "error" | "pending" | "database" | "info";
@@ -30,45 +29,37 @@ interface ActivityItem {
   details?: string;
 }
 
-// Mock data
-const mockSites = [
-  { id: "1", name: "amazon.it", status: "active" as const, angle: 0.5, distance: 0.7 },
-  { id: "2", name: "ebay.com", status: "active" as const, angle: 2.1, distance: 0.5 },
-  { id: "3", name: "target.com", status: "idle" as const, angle: 3.8, distance: 0.8 },
-  { id: "4", name: "walmart.com", status: "error" as const, angle: 5.2, distance: 0.6 },
-];
-
 const initialActivity: ActivityItem[] = [
   {
     id: "1",
     type: "success",
     message: "Batch scrape completed successfully",
-    site: "amazon.it",
+    site: "telegram.org",
     timestamp: new Date(Date.now() - 60000),
-    details: "1,247 products extracted",
+    details: "45,231 users extracted",
   },
   {
     id: "2",
     type: "scrape",
     message: "Scraping in progress...",
-    site: "ebay.com",
+    site: "facebook.com",
     timestamp: new Date(Date.now() - 30000),
-    details: "Page 47 of 120",
+    details: "Page 147 of 500",
   },
   {
     id: "3",
     type: "database",
     message: "Data synced to Supabase",
     timestamp: new Date(Date.now() - 120000),
-    details: "3,421 records updated",
+    details: "89,127 records updated",
   },
   {
     id: "4",
-    type: "error",
-    message: "Connection timeout",
-    site: "walmart.com",
+    type: "scrape",
+    message: "Extracting user profiles...",
+    site: "instagram.com",
     timestamp: new Date(Date.now() - 180000),
-    details: "Retry scheduled in 5 minutes",
+    details: "234,567 profiles processed",
   },
 ];
 
@@ -83,22 +74,22 @@ const terminalLines = [
 
 /**
  * Main Dashboard Component
- * Displays system stats, activity feed, radar view, and terminal
+ * Displays system stats, activity feed, and system overview
  */
 export function Dashboard() {
   const [stats, setStats] = useState({
     sitesActive: 4,
-    totalData: 124789,
-    requestsPerMin: 42,
-    successRate: 98.5,
+    totalData: 496768,
+    requestsPerMin: 156,
+    successRate: 99.2,
   });
 
   const [activity, setActivity] = useState<ActivityItem[]>(initialActivity);
   const [scrapingProgress, setScrapingProgress] = useState({
-    amazon: 100,
-    ebay: 78,
-    target: 0,
-    walmart: 45,
+    telegram: 100,
+    facebook: 78,
+    whatsapp: 92,
+    instagram: 45,
   });
 
   // Simulate live updates
@@ -112,8 +103,8 @@ export function Dashboard() {
 
       setScrapingProgress((prev) => ({
         ...prev,
-        ebay: Math.min(100, prev.ebay + Math.random() * 2),
-        walmart: Math.min(100, prev.walmart + Math.random() * 3),
+        facebook: Math.min(100, prev.facebook + Math.random() * 2),
+        instagram: Math.min(100, prev.instagram + Math.random() * 3),
       }));
     }, 2000);
 
@@ -155,22 +146,18 @@ export function Dashboard() {
         animate={{ opacity: 1, y: 0 }}
       >
         <div>
-          <GlitchText
-            text="SYSTEM DASHBOARD"
-            as="h1"
-            className="text-2xl font-bold text-demon-accent"
-            autoGlitch
-            neon
-          />
+          <h1 className="text-2xl font-semibold text-demon-text">
+            System Dashboard
+          </h1>
           <p className="text-sm text-demon-text-muted mt-1">
             Real-time monitoring and control center
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 px-4 py-2 rounded-lg glass">
           <span className="text-xs text-demon-text-muted">System Status:</span>
-          <span className="flex items-center gap-1 text-xs text-demon-success">
+          <span className="flex items-center gap-2 text-sm text-demon-success font-medium">
             <span className="w-2 h-2 rounded-full bg-demon-success animate-pulse" />
-            OPERATIONAL
+            Operational
           </span>
         </div>
       </motion.div>
@@ -208,15 +195,15 @@ export function Dashboard() {
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Activity Feed */}
+        {/* Left Column - Activity Feed & Progress */}
         <div className="lg:col-span-2 space-y-6">
           {/* Scraping Progress */}
           <NeonCard
-            variant="glow"
+            variant="default"
             header={
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-demon-primary" />
-                <span className="text-sm font-mono uppercase tracking-wider">
+                <span className="text-sm font-medium">
                   Active Scrapers
                 </span>
               </div>
@@ -224,27 +211,28 @@ export function Dashboard() {
           >
             <div className="space-y-4">
               <ProgressBar
-                value={scrapingProgress.amazon}
-                label="amazon.it"
+                value={scrapingProgress.telegram}
+                label="telegram.org"
                 variant="success"
               />
               <ProgressBar
-                value={scrapingProgress.ebay}
-                label="ebay.com"
+                value={scrapingProgress.facebook}
+                label="facebook.com"
                 variant="default"
                 striped
                 animated
               />
               <ProgressBar
-                value={scrapingProgress.target}
-                label="target.com"
-                variant="warning"
+                value={scrapingProgress.whatsapp}
+                label="whatsapp.com"
+                variant="success"
               />
               <ProgressBar
-                value={scrapingProgress.walmart}
-                label="walmart.com"
-                variant="danger"
+                value={scrapingProgress.instagram}
+                label="instagram.com"
+                variant="default"
                 striped
+                animated
               />
             </div>
           </NeonCard>
@@ -255,50 +243,113 @@ export function Dashboard() {
           </NeonCard>
         </div>
 
-        {/* Right Column - Radar & System */}
+        {/* Right Column - System Info */}
         <div className="space-y-6">
-          {/* Radar View */}
-          <NeonCard variant="glow">
-            <RadarView sites={mockSites} />
+          {/* Quick Actions */}
+          <NeonCard
+            variant="default"
+            header={
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-demon-primary" />
+                <span className="text-sm font-medium">
+                  Quick Status
+                </span>
+              </div>
+            }
+          >
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 rounded-lg bg-demon-bg/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-demon-success/20 flex items-center justify-center">
+                    <Server className="w-4 h-4 text-demon-success" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Apify API</p>
+                    <p className="text-xs text-demon-text-muted">Connected</p>
+                  </div>
+                </div>
+                <span className="w-2 h-2 rounded-full bg-demon-success" />
+              </div>
+              
+              <div className="flex items-center justify-between p-3 rounded-lg bg-demon-bg/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-demon-success/20 flex items-center justify-center">
+                    <Database className="w-4 h-4 text-demon-success" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Supabase</p>
+                    <p className="text-xs text-demon-text-muted">Synced</p>
+                  </div>
+                </div>
+                <span className="w-2 h-2 rounded-full bg-demon-success" />
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg bg-demon-bg/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-demon-warning/20 flex items-center justify-center">
+                    <Clock className="w-4 h-4 text-demon-warning" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Next Sync</p>
+                    <p className="text-xs text-demon-text-muted">In 5 minutes</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </NeonCard>
 
           {/* System Resources */}
           <NeonCard
-            variant="subtle"
+            variant="default"
             header={
               <div className="flex items-center gap-2">
                 <Server className="w-4 h-4 text-demon-primary" />
-                <span className="text-sm font-mono uppercase tracking-wider">
+                <span className="text-sm font-medium">
                   System Resources
                 </span>
               </div>
             }
           >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Cpu className="w-4 h-4 text-demon-text-muted" />
-                  <span className="text-xs text-demon-text-muted">CPU</span>
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Cpu className="w-4 h-4 text-demon-text-muted" />
+                    <span className="text-sm text-demon-text-muted">CPU Usage</span>
+                  </div>
+                  <span className="text-sm font-mono text-demon-accent">23%</span>
                 </div>
-                <span className="text-xs font-mono text-demon-accent">23%</span>
+                <ProgressBar value={23} showValue={false} size="sm" />
               </div>
-              <ProgressBar value={23} showValue={false} size="sm" />
 
-              <div className="flex items-center justify-between mt-2">
-                <div className="flex items-center gap-2">
-                  <HardDrive className="w-4 h-4 text-demon-text-muted" />
-                  <span className="text-xs text-demon-text-muted">Memory</span>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <HardDrive className="w-4 h-4 text-demon-text-muted" />
+                    <span className="text-sm text-demon-text-muted">Memory</span>
+                  </div>
+                  <span className="text-sm font-mono text-demon-accent">1.2 GB</span>
                 </div>
-                <span className="text-xs font-mono text-demon-accent">1.2GB</span>
+                <ProgressBar value={45} showValue={false} size="sm" />
               </div>
-              <ProgressBar value={45} showValue={false} size="sm" />
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-demon-text-muted" />
+                    <span className="text-sm text-demon-text-muted">Storage</span>
+                  </div>
+                  <span className="text-sm font-mono text-demon-accent">112 MB</span>
+                </div>
+                <ProgressBar value={22} showValue={false} size="sm" />
+              </div>
             </div>
           </NeonCard>
         </div>
       </div>
 
       {/* Terminal */}
-      <NeonCard variant="default" className="mt-6">
+      <NeonCard variant="default">
         <Terminal initialLines={terminalLines} />
       </NeonCard>
     </div>
