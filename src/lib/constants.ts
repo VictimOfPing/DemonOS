@@ -33,7 +33,6 @@ export const NAV_ITEMS = [
   { id: "dashboard", label: "DASHBOARD", icon: "LayoutDashboard", hotkey: "F1", path: "/" },
   { id: "scraper", label: "SCRAPER", icon: "Bot", hotkey: "F2", path: "/scraper" },
   { id: "database", label: "DATABASE", icon: "Database", hotkey: "F3", path: "/database" },
-  { id: "terminal", label: "TERMINAL", icon: "Terminal", hotkey: "F4", path: "/terminal" },
 ] as const;
 
 /**

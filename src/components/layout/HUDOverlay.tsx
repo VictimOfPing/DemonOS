@@ -40,7 +40,7 @@ export function HUDOverlay() {
 
   return (
     <motion.header
-      className="fixed top-0 left-0 right-0 h-14 z-50 bg-gradient-header border-b border-demon-primary/20"
+      className="fixed top-0 left-0 right-0 h-14 z-50 bg-demon-bg/80 backdrop-blur-md border-b border-demon-primary/20"
       initial={{ y: -56, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.4 }}

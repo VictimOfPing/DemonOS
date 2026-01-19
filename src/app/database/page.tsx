@@ -184,11 +184,11 @@ export default function DatabasePage() {
   };
 
   return (
-    <main className="relative min-h-screen w-full">
+    <main className="relative min-h-screen w-full bg-transparent">
       <NetworkBackground />
       <HUDOverlay />
 
-      <div className="flex min-h-screen pt-14">
+      <div className="relative z-10 flex min-h-screen pt-14">
         <ModMenuSidebar />
 
         <div className="flex-1 ml-64 p-8 overflow-auto h-[calc(100vh-3.5rem)]">

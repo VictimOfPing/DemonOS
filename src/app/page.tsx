@@ -7,15 +7,15 @@ import { Dashboard } from "@/components/dashboard/Dashboard";
 
 export default function Home() {
   return (
-    <main className="relative min-h-screen w-full">
-      {/* Professional Network Background */}
+    <main className="relative min-h-screen w-full bg-transparent">
+      {/* Animated Network Background */}
       <NetworkBackground />
       
       {/* Top Header */}
       <HUDOverlay />
       
       {/* Main Layout */}
-      <div className="flex min-h-screen pt-14">
+      <div className="relative z-10 flex min-h-screen pt-14">
         {/* Sidebar */}
         <ModMenuSidebar />
         

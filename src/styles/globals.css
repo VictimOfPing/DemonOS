@@ -43,7 +43,7 @@
 
 html,
 body {
-  background-color: var(--demon-bg);
+  background-color: transparent;
   color: var(--demon-text);
   font-family: 'Inter', system-ui, sans-serif;
   overflow-x: hidden;

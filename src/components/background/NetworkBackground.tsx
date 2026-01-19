@@ -9,31 +9,17 @@ interface Node {
   vy: number;
   radius: number;
   pulsePhase: number;
-}
-
-interface NetworkBackgroundProps {
-  nodeCount?: number;
-  connectionDistance?: number;
-  nodeColor?: string;
-  lineColor?: string;
-  glowColor?: string;
+  brightness: number;
 }
 
 /**
- * Professional network/constellation background
- * Creates an animated mesh of connected nodes with glow effects
+ * Animated network background with connected nodes
+ * Creates a constellation effect with glowing cyan nodes and lines
  */
-export function NetworkBackground({
-  nodeCount = 50,
-  connectionDistance = 200,
-  nodeColor = "#a855f7",
-  lineColor = "#8b5cf6",
-  glowColor = "#c084fc",
-}: NetworkBackgroundProps) {
+export function NetworkBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const nodesRef = useRef<Node[]>([]);
   const animationRef = useRef<number>(0);
-  const mouseRef = useRef({ x: -1000, y: -1000 });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -42,6 +28,9 @@ export function NetworkBackground({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    const NODE_COUNT = 80;
+    const CONNECTION_DISTANCE = 180;
+
     const resizeCanvas = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
@@ -49,92 +38,95 @@ export function NetworkBackground({
 
     const initNodes = () => {
       nodesRef.current = [];
-      for (let i = 0; i < nodeCount; i++) {
+      for (let i = 0; i < NODE_COUNT; i++) {
         nodesRef.current.push({
           x: Math.random() * canvas.width,
           y: Math.random() * canvas.height,
-          vx: (Math.random() - 0.5) * 0.5,
-          vy: (Math.random() - 0.5) * 0.5,
+          vx: (Math.random() - 0.5) * 0.4,
+          vy: (Math.random() - 0.5) * 0.4,
           radius: Math.random() * 2 + 1,
           pulsePhase: Math.random() * Math.PI * 2,
+          brightness: Math.random() * 0.5 + 0.5,
         });
       }
     };
 
     const drawNode = (node: Node, time: number) => {
-      const pulse = Math.sin(time * 0.002 + node.pulsePhase) * 0.5 + 0.5;
-      const glowRadius = node.radius + pulse * 8;
+      const pulse = Math.sin(time * 0.003 + node.pulsePhase) * 0.3 + 0.7;
+      const glowSize = node.radius * 8 * pulse * node.brightness;
       
-      // Outer glow
+      // Outer glow - cyan color
       const gradient = ctx.createRadialGradient(
         node.x, node.y, 0,
-        node.x, node.y, glowRadius
+        node.x, node.y, glowSize
       );
-      gradient.addColorStop(0, glowColor + "40");
-      gradient.addColorStop(0.5, glowColor + "15");
+      gradient.addColorStop(0, `rgba(0, 255, 255, ${0.4 * pulse * node.brightness})`);
+      gradient.addColorStop(0.3, `rgba(0, 200, 220, ${0.2 * pulse * node.brightness})`);
+      gradient.addColorStop(0.6, `rgba(0, 150, 180, ${0.05 * pulse * node.brightness})`);
       gradient.addColorStop(1, "transparent");
       
       ctx.beginPath();
-      ctx.arc(node.x, node.y, glowRadius, 0, Math.PI * 2);
+      ctx.arc(node.x, node.y, glowSize, 0, Math.PI * 2);
       ctx.fillStyle = gradient;
       ctx.fill();
       
-      // Core
+      // Core - bright cyan/white
+      const coreGradient = ctx.createRadialGradient(
+        node.x, node.y, 0,
+        node.x, node.y, node.radius * 2
+      );
+      coreGradient.addColorStop(0, `rgba(255, 255, 255, ${pulse * node.brightness})`);
+      coreGradient.addColorStop(0.5, `rgba(0, 255, 255, ${0.8 * pulse * node.brightness})`);
+      coreGradient.addColorStop(1, `rgba(0, 200, 220, ${0.3 * pulse * node.brightness})`);
+      
       ctx.beginPath();
-      ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-      ctx.fillStyle = nodeColor;
+      ctx.arc(node.x, node.y, node.radius * 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = coreGradient;
       ctx.fill();
       
-      // Bright center
+      // Bright center dot
       ctx.beginPath();
       ctx.arc(node.x, node.y, node.radius * 0.5, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = `rgba(255, 255, 255, ${pulse * node.brightness})`;
       ctx.fill();
     };
 
     const drawConnection = (nodeA: Node, nodeB: Node, distance: number) => {
-      const opacity = 1 - distance / connectionDistance;
+      const opacity = (1 - distance / CONNECTION_DISTANCE) * 0.6;
+      const avgBrightness = (nodeA.brightness + nodeB.brightness) / 2;
+      
+      // Create gradient line
+      const gradient = ctx.createLinearGradient(nodeA.x, nodeA.y, nodeB.x, nodeB.y);
+      gradient.addColorStop(0, `rgba(0, 220, 230, ${opacity * nodeA.brightness})`);
+      gradient.addColorStop(0.5, `rgba(0, 180, 200, ${opacity * avgBrightness * 0.7})`);
+      gradient.addColorStop(1, `rgba(0, 220, 230, ${opacity * nodeB.brightness})`);
       
       ctx.beginPath();
       ctx.moveTo(nodeA.x, nodeA.y);
       ctx.lineTo(nodeB.x, nodeB.y);
-      ctx.strokeStyle = lineColor + Math.floor(opacity * 60).toString(16).padStart(2, "0");
+      ctx.strokeStyle = gradient;
       ctx.lineWidth = 1;
       ctx.stroke();
     };
 
     const animate = (time: number) => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Clear with dark background
+      ctx.fillStyle = "#050a0f";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Update and draw nodes
+      // Update nodes
       nodesRef.current.forEach((node) => {
-        // Move node
         node.x += node.vx;
         node.y += node.vy;
 
-        // Bounce off edges
-        if (node.x < 0 || node.x > canvas.width) node.vx *= -1;
-        if (node.y < 0 || node.y > canvas.height) node.vy *= -1;
-
-        // Mouse interaction
-        const dx = mouseRef.current.x - node.x;
-        const dy = mouseRef.current.y - node.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 150) {
-          const force = (150 - dist) / 150;
-          node.vx -= (dx / dist) * force * 0.02;
-          node.vy -= (dy / dist) * force * 0.02;
-        }
-
-        // Limit velocity
-        const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
-        if (speed > 1) {
-          node.vx = (node.vx / speed) * 1;
-          node.vy = (node.vy / speed) * 1;
-        }
+        // Wrap around edges
+        if (node.x < -50) node.x = canvas.width + 50;
+        if (node.x > canvas.width + 50) node.x = -50;
+        if (node.y < -50) node.y = canvas.height + 50;
+        if (node.y > canvas.height + 50) node.y = -50;
       });
 
-      // Draw connections first (behind nodes)
+      // Draw connections
       for (let i = 0; i < nodesRef.current.length; i++) {
         for (let j = i + 1; j < nodesRef.current.length; j++) {
           const nodeA = nodesRef.current[i];
@@ -143,50 +135,39 @@ export function NetworkBackground({
           const dy = nodeA.y - nodeB.y;
           const distance = Math.sqrt(dx * dx + dy * dy);
 
-          if (distance < connectionDistance) {
+          if (distance < CONNECTION_DISTANCE) {
             drawConnection(nodeA, nodeB, distance);
           }
         }
       }
 
-      // Draw nodes
+      // Draw nodes on top
       nodesRef.current.forEach((node) => drawNode(node, time));
 
       animationRef.current = requestAnimationFrame(animate);
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      mouseRef.current = { x: e.clientX, y: e.clientY };
-    };
-
-    const handleMouseLeave = () => {
-      mouseRef.current = { x: -1000, y: -1000 };
     };
 
     resizeCanvas();
     initNodes();
     animate(0);
 
-    window.addEventListener("resize", () => {
+    const handleResize = () => {
       resizeCanvas();
       initNodes();
-    });
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseleave", handleMouseLeave);
+    };
+
+    window.addEventListener("resize", handleResize);
 
     return () => {
       cancelAnimationFrame(animationRef.current);
-      window.removeEventListener("resize", resizeCanvas);
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseleave", handleMouseLeave);
+      window.removeEventListener("resize", handleResize);
     };
-  }, [nodeCount, connectionDistance, nodeColor, lineColor, glowColor]);
+  }, []);
 
   return (
     <canvas
       ref={canvasRef}
-      className="fixed inset-0 -z-10 bg-gradient-to-br from-[#050508] via-[#0a0a12] to-[#0f0a18]"
-      style={{ pointerEvents: "none" }}
+      className="fixed inset-0 z-0"
     />
   );
 }

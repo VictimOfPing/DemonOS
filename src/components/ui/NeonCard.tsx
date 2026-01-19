@@ -15,22 +15,22 @@ interface NeonCardProps extends Omit<HTMLMotionProps<"div">, "ref"> {
 const cardVariants = {
   default: {
     border: "border-demon-primary/15",
-    bg: "bg-demon-bg-card/80",
+    bg: "bg-demon-bg/70 backdrop-blur-sm",
     shadow: "",
   },
   glow: {
     border: "border-demon-primary/25",
-    bg: "bg-demon-bg-card/90",
+    bg: "bg-demon-bg/80 backdrop-blur-sm",
     shadow: "shadow-lg shadow-demon-primary/5",
   },
   intense: {
     border: "border-demon-primary/40",
-    bg: "bg-demon-bg-card",
+    bg: "bg-demon-bg/85 backdrop-blur-sm",
     shadow: "shadow-xl shadow-demon-primary/10",
   },
   subtle: {
     border: "border-demon-primary/10",
-    bg: "bg-demon-bg/60",
+    bg: "bg-demon-bg/50 backdrop-blur-sm",
     shadow: "",
   },
 };

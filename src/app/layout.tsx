@@ -18,7 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className="antialiased min-h-screen bg-demon-bg text-demon-text overflow-hidden">
+      <body className="antialiased min-h-screen bg-transparent text-demon-text overflow-hidden">
         <ToastProvider>
           {children}
         </ToastProvider>

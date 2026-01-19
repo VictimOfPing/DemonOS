@@ -8,7 +8,6 @@ import {
   LayoutDashboard, 
   Bot, 
   Database, 
-  Terminal,
   ChevronDown,
   Plus,
   Settings,
@@ -21,7 +20,6 @@ const iconMap = {
   LayoutDashboard,
   Bot,
   Database,
-  Terminal,
 } as const;
 
 interface Site {
@@ -59,7 +57,6 @@ export function ModMenuSidebar() {
       case "dashboard": return "/";
       case "scraper": return "/scraper";
       case "database": return "/database";
-      case "terminal": return "/terminal";
       default: return "/";
     }
   };
@@ -71,7 +68,7 @@ export function ModMenuSidebar() {
 
   return (
     <motion.aside
-      className="fixed left-0 top-14 bottom-0 w-64 z-40 glass border-r border-demon-primary/10"
+      className="fixed left-0 top-14 bottom-0 w-64 z-40 bg-demon-bg/80 backdrop-blur-md border-r border-demon-primary/10"
       initial={{ x: -264, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
