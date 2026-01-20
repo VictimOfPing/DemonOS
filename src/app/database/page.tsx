@@ -150,54 +150,24 @@ export default function DatabasePage() {
     successfulRuns: 0,
   });
 
-  // Fetch data aggregated by source
+  // Fetch aggregated stats (optimized - uses database aggregation instead of client-side)
   const fetchSources = useCallback(async (scraperType: ScraperType) => {
     try {
-      const response = await fetch(
-        `/api/scraper/data?source=database&scraperType=${scraperType}&limit=10000`
-      );
+      // Use the optimized stats endpoint
+      const response = await fetch(`/api/scraper/stats?scraperType=${scraperType}`);
       const data = await response.json();
 
-      if (data.success && data.data?.items) {
-        // Aggregate by source_identifier
-        const sourceMap = new Map<string, SourceStats>();
-
-        data.data.items.forEach((record: ScrapedDataRecord) => {
-          const existing = sourceMap.get(record.sourceIdentifier);
-          if (existing) {
-            existing.recordCount++;
-            if (record.isPremium) existing.premiumCount++;
-            if (record.isVerified) existing.verifiedCount++;
-            if (record.isBot) existing.botCount++;
-            if (record.isSuspicious) existing.suspiciousCount++;
-            if (new Date(record.createdAt) > new Date(existing.lastScraped)) {
-              existing.lastScraped = record.createdAt;
-            }
-          } else {
-            sourceMap.set(record.sourceIdentifier, {
-              sourceIdentifier: record.sourceIdentifier,
-              sourceName: record.sourceName,
-              recordCount: 1,
-              premiumCount: record.isPremium ? 1 : 0,
-              verifiedCount: record.isVerified ? 1 : 0,
-              botCount: record.isBot ? 1 : 0,
-              suspiciousCount: record.isSuspicious ? 1 : 0,
-              lastScraped: record.createdAt,
-            });
-          }
-        });
-
-        const sourcesArray = Array.from(sourceMap.values());
-        setSources(sourcesArray);
+      if (data.success && data.data) {
+        setSources(data.data.sources || []);
         
-        // Update global stats (without runs dependency to avoid infinite loop)
+        // Update global stats from pre-calculated totals
         setGlobalStats(prev => ({
           ...prev,
-          totalSources: sourcesArray.length,
-          totalRecords: data.data.total || data.data.items.length,
-          premiumCount: sourcesArray.reduce((acc, s) => acc + s.premiumCount, 0),
-          verifiedCount: sourcesArray.reduce((acc, s) => acc + s.verifiedCount, 0),
-          botCount: sourcesArray.reduce((acc, s) => acc + s.botCount, 0),
+          totalSources: data.data.totals?.totalSources || 0,
+          totalRecords: data.data.totals?.totalRecords || 0,
+          premiumCount: data.data.totals?.premiumCount || 0,
+          verifiedCount: data.data.totals?.verifiedCount || 0,
+          botCount: data.data.totals?.botCount || 0,
         }));
       }
     } catch (error) {
