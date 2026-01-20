@@ -397,8 +397,16 @@ export default function DatabasePage() {
   // Helper: clean string for export (remove problematic characters)
   const cleanString = (value: string | null | undefined): string => {
     if (!value) return "";
-    // Remove emojis and special unicode for cleaner export
-    return value.replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, "").trim();
+    // Remove emojis and special unicode for cleaner export (ES5 compatible)
+    return value
+      .split("")
+      .filter((char) => {
+        const code = char.charCodeAt(0);
+        // Keep only basic ASCII and common extended characters
+        return code < 0xD800 || (code > 0xDFFF && code < 0xFE00);
+      })
+      .join("")
+      .trim();
   };
 
   const exportData = async (format: "csv" | "json") => {
