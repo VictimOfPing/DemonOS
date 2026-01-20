@@ -190,20 +190,20 @@ export default function DatabasePage() {
         const sourcesArray = Array.from(sourceMap.values());
         setSources(sourcesArray);
         
-        // Update global stats
-        setGlobalStats({
+        // Update global stats (without runs dependency to avoid infinite loop)
+        setGlobalStats(prev => ({
+          ...prev,
           totalSources: sourcesArray.length,
           totalRecords: data.data.total || data.data.items.length,
           premiumCount: sourcesArray.reduce((acc, s) => acc + s.premiumCount, 0),
           verifiedCount: sourcesArray.reduce((acc, s) => acc + s.verifiedCount, 0),
           botCount: sourcesArray.reduce((acc, s) => acc + s.botCount, 0),
-          successfulRuns: runs.filter((r) => r.status === "SUCCEEDED").length,
-        });
+        }));
       }
     } catch (error) {
       console.error("Failed to fetch sources:", error);
     }
-  }, [runs]);
+  }, []);
 
   // Fetch records for selected source
   const fetchRecords = useCallback(
@@ -252,25 +252,31 @@ export default function DatabasePage() {
       const data = await response.json();
 
       if (data.success && data.data?.runs) {
-        setRuns(
-          data.data.runs.map((run: {
-            id: string;
-            run_id: string;
-            actor_name?: string;
-            status: string;
-            started_at: string;
-            finished_at: string | null;
-            items_count: number;
-          }) => ({
-            id: run.id,
-            run_id: run.run_id,
-            actor_name: run.actor_name || "Scraper",
-            status: run.status,
-            started_at: run.started_at,
-            finished_at: run.finished_at,
-            items_count: run.items_count,
-          }))
-        );
+        const mappedRuns = data.data.runs.map((run: {
+          id: string;
+          run_id: string;
+          actor_name?: string;
+          status: string;
+          started_at: string;
+          finished_at: string | null;
+          items_count: number;
+        }) => ({
+          id: run.id,
+          run_id: run.run_id,
+          actor_name: run.actor_name || "Scraper",
+          status: run.status,
+          started_at: run.started_at,
+          finished_at: run.finished_at,
+          items_count: run.items_count,
+        }));
+        
+        setRuns(mappedRuns);
+        
+        // Update successful runs count in global stats
+        setGlobalStats(prev => ({
+          ...prev,
+          successfulRuns: mappedRuns.filter((r: RunInfo) => r.status.toLowerCase() === "succeeded").length,
+        }));
       }
     } catch (error) {
       console.error("Failed to fetch runs:", error);
