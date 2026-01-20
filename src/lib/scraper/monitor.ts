@@ -3,7 +3,7 @@
  * Monitors active scraper runs and handles state changes
  */
 
-import { getRunStatus, getRunData } from "@/lib/apify/telegram-actor";
+import { getRunStatus, getRunData, getRunDataRaw } from "@/lib/apify/telegram-actor";
 import { getServerSupabase } from "@/lib/supabase/client";
 import { createLogger } from "@/lib/supabase/logger";
 import type { ApifyRunStatus } from "@/lib/apify/types";
@@ -126,10 +126,12 @@ export interface AutoSaveResult {
 
 /**
  * Auto-save data for a completed run
+ * Uses generic scraped_data table that supports any scraper type
  */
 export async function autoSaveRunData(
   dbRunId: string,
-  datasetId: string
+  datasetId: string,
+  scraperType: string = "telegram"
 ): Promise<AutoSaveResult> {
   const supabase = getServerSupabase();
   
@@ -140,15 +142,15 @@ export async function autoSaveRunData(
       logger.warn("SUPABASE_SERVICE_ROLE_KEY not configured - using anon key, inserts may fail due to RLS");
     }
 
-    // Fetch all data from Apify
+    // Fetch all RAW data from Apify (to preserve original field names like user_id)
     let allItems: Record<string, unknown>[] = [];
     let offset = 0;
     const batchSize = 1000;
     let hasMore = true;
 
     while (hasMore) {
-      const { items, hasMore: more } = await getRunData(datasetId, batchSize, offset);
-      allItems = allItems.concat(items as unknown as Record<string, unknown>[]);
+      const { items, hasMore: more } = await getRunDataRaw(datasetId, batchSize, offset);
+      allItems = allItems.concat(items);
       hasMore = more;
       offset += batchSize;
 
@@ -166,10 +168,10 @@ export async function autoSaveRunData(
     // Log first item to debug structure
     logger.info(`Sample item structure: ${JSON.stringify(allItems[0], null, 2)}`);
 
-    // Get the source_url from the run's input config in database
+    // Get the source info from the run's input config in database
     const { data: runData, error: runError } = await supabase
       .from("scraper_runs")
-      .select("input_config")
+      .select("input_config, actor_id")
       .eq("id", dbRunId)
       .single();
     
@@ -178,65 +180,72 @@ export async function autoSaveRunData(
     }
     
     const inputConfig = runData?.input_config as Record<string, unknown> || {};
-    const defaultSourceUrl = (inputConfig.Target_Group || inputConfig.targetGroup || "unknown_group") as string;
+    const actorId = runData?.actor_id || "unknown";
+    const sourceIdentifier = (
+      inputConfig.Target_Group || 
+      inputConfig.targetGroup || 
+      inputConfig.target_url ||
+      inputConfig.username ||
+      "unknown_source"
+    ) as string;
 
-    // Map to database schema - handle bhansalisoft scraper format:
-    // { user_id, user_name, access_hash, first_name, last_name }
+    // Map to generic scraped_data format
     const insertData = allItems.map((item) => {
-      // Get telegram_id - bhansalisoft uses "user_id"
-      const telegramId = String(
-        item.user_id || item.telegram_id || item.id || item.userId || ""
+      // Extract entity ID
+      const entityId = String(
+        item.user_id || item.telegram_id || item.id || item.userId || item.entity_id || ""
       );
       
-      // Get source_url from item or use default from input config
-      const sourceUrl = (
-        item.source_url || 
-        item.group_url || 
-        item.channel_url || 
-        item.group || 
-        defaultSourceUrl
-      ) as string;
+      // Get username
+      const username = (
+        item.user_name || 
+        item.username || 
+        (Array.isArray(item.usernames) ? item.usernames[0] : null)
+      ) as string || null;
 
-      // Get username - bhansalisoft uses "user_name" (singular)
-      let usernames: string[] = [];
-      if (item.user_name) {
-        usernames = [item.user_name as string];
-      } else if (Array.isArray(item.usernames)) {
-        usernames = item.usernames;
-      } else if (item.username) {
-        usernames = [item.username as string];
-      }
+      // Get display name
+      const firstName = (item.first_name || item.firstName || item.name) as string || "";
+      const lastName = (item.last_name || item.lastName) as string || "";
+      const displayName = [firstName, lastName].filter(Boolean).join(" ") || null;
 
       return {
-        // Skip run_id to avoid foreign key issues - we can link later
-        source_url: sourceUrl,
-        processor: "bhansalisoft/telegram-group-member-scraper",
-        processed_at: new Date().toISOString(),
-        telegram_id: telegramId,
-        first_name: (item.first_name || item.firstName) as string || null,
-        last_name: (item.last_name || item.lastName) as string || null,
-        usernames: usernames,
-        phone: (item.phone) as string || null,
-        type: "user",
-        is_deleted: false,
-        is_verified: false,
-        is_premium: false,
-        is_scam: false,
-        is_fake: false,
-        is_restricted: false,
-        lang_code: null,
-        last_seen: null,
-        stories_hidden: false,
-        premium_contact: false,
+        scraper_type: scraperType,
+        scraper_actor: actorId,
+        source_identifier: sourceIdentifier,
+        source_name: sourceIdentifier,
+        entity_id: entityId,
+        entity_type: "member",
+        entity_name: displayName,
+        username: username,
+        display_name: firstName || null,
+        profile_url: username ? `https://t.me/${username}` : null,
+        is_verified: Boolean(item.is_verified || item.verified),
+        is_premium: Boolean(item.is_premium || item.premium),
+        is_bot: item.type === "bot" || Boolean(item.is_bot),
+        is_suspicious: Boolean(item.is_scam || item.is_fake || item.scam || item.fake),
+        is_active: !Boolean(item.is_deleted || item.deleted),
+        // Store all original data in JSONB
+        data: item,
       };
     });
 
-    // Filter out items with empty telegram_id
-    const validData = insertData.filter(item => item.telegram_id && item.telegram_id !== "" && item.telegram_id !== "0");
+    // Filter out items with empty/invalid entity_id
+    // Also filter out status messages (first item from bhansalisoft often has a string message as user_id)
+    const validData = insertData.filter(item => {
+      if (!item.entity_id || item.entity_id === "" || item.entity_id === "0") {
+        return false;
+      }
+      // Filter out non-numeric entity IDs (status messages from scraper like "please go to Log tab...")
+      if (isNaN(Number(item.entity_id))) {
+        logger.debug(`Filtering out non-numeric entity_id: ${item.entity_id}`);
+        return false;
+      }
+      return true;
+    });
     logger.info(`Valid items to insert: ${validData.length} of ${insertData.length}`);
 
     if (validData.length === 0) {
-      const errorMsg = "No valid items to insert - all items missing telegram_id";
+      const errorMsg = "No valid items to insert - all items missing entity_id";
       logger.error(errorMsg);
       return { 
         savedCount: 0, 
@@ -248,9 +257,8 @@ export async function autoSaveRunData(
 
     // Log a sample of what we're trying to insert
     logger.info(`Sample insert data: ${JSON.stringify(validData[0], null, 2)}`);
-    logger.info(`run_id (UUID) being used: ${dbRunId}`);
 
-    // Insert in batches - try without upsert first to see the error
+    // Insert in batches using upsert
     const BATCH_SIZE = 500;
     let savedCount = 0;
     let lastError: { code?: string; message?: string; details?: string; hint?: string } | null = null;
@@ -258,37 +266,20 @@ export async function autoSaveRunData(
     for (let i = 0; i < validData.length; i += BATCH_SIZE) {
       const batch = validData.slice(i, i + BATCH_SIZE);
       
-      // Try insert (not upsert) to see clearer errors
       const { data, error } = await supabase
-        .from("telegram_members")
-        .insert(batch)
+        .from("scraped_data")
+        .upsert(batch, {
+          onConflict: "scraper_type,source_identifier,entity_id",
+          ignoreDuplicates: false,
+        })
         .select("id");
 
       if (!error) {
         savedCount += data?.length || batch.length;
-        logger.info(`Batch ${i / BATCH_SIZE + 1}: inserted ${data?.length || batch.length} rows`);
+        logger.info(`Batch ${i / BATCH_SIZE + 1}: saved ${data?.length || batch.length} rows`);
       } else {
         lastError = error;
         logger.error(`Batch insert error at ${i}: code=${error.code}, message=${error.message}, details=${error.details}, hint=${error.hint}`);
-        
-        // If it's a duplicate key error, try upsert for this batch
-        if (error.code === "23505") {
-          const { data: upsertData, error: upsertError } = await supabase
-            .from("telegram_members")
-            .upsert(batch, {
-              onConflict: "telegram_id,source_url",
-              ignoreDuplicates: true,
-            })
-            .select("id");
-          
-          if (!upsertError) {
-            savedCount += upsertData?.length || batch.length;
-            logger.info(`Batch ${i / BATCH_SIZE + 1}: upserted ${upsertData?.length || batch.length} rows after duplicate error`);
-          } else {
-            logger.error(`Upsert also failed: ${upsertError.message}`);
-            lastError = upsertError;
-          }
-        }
       }
     }
 
@@ -384,7 +375,9 @@ export async function syncRunData(runId: string): Promise<{
         sampleData = items[0] as unknown as Record<string, unknown>;
       }
       
-      const saveResult = await autoSaveRunData(dbRun.id, apifyRun.datasetId);
+      // Determine scraper type from actor ID
+      const scraperType = dbRun.actor_id?.includes("telegram") ? "telegram" : "custom";
+      const saveResult = await autoSaveRunData(dbRun.id, apifyRun.datasetId, scraperType);
       dataSaved = saveResult.savedCount;
       saveError = saveResult.error;
       saveErrorCode = saveResult.errorCode;
@@ -401,7 +394,7 @@ export async function syncRunData(runId: string): Promise<{
           errorMessage += ` DB Error: ${saveError}`;
         }
         if (saveResult.validItems === 0 && saveResult.totalItems > 0) {
-          errorMessage += " All items missing telegram_id field.";
+          errorMessage += " All items missing entity_id field.";
         }
         
         return {
@@ -451,7 +444,7 @@ export async function monitorActiveRuns(options: {
   // Get all active runs AND recently completed runs with 0 items (need sync)
   const { data: activeRuns, error } = await supabase
     .from("scraper_runs")
-    .select("run_id, id, dataset_id, status, items_count")
+    .select("run_id, id, dataset_id, status, items_count, actor_id")
     .or("status.in.(pending,running),and(status.eq.succeeded,items_count.eq.0)");
 
   if (error) {
@@ -485,7 +478,8 @@ export async function monitorActiveRuns(options: {
 
         // Auto-save data on successful completion
         if (autoSaveOnComplete && result.apifyStatus === "SUCCEEDED") {
-          const saveResult = await autoSaveRunData(run.id, result.datasetId);
+          const scraperType = run.actor_id?.includes("telegram") ? "telegram" : "custom";
+          const saveResult = await autoSaveRunData(run.id, result.datasetId, scraperType);
           if (saveResult.savedCount > 0) {
             result.dataSaved = true;
             dataSaved += saveResult.savedCount;

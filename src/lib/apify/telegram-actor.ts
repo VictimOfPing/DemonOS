@@ -182,6 +182,7 @@ export async function abortRun(runId: string): Promise<ScraperRunInfo> {
 
 /**
  * Get data from a run's dataset
+ * Returns transformed TelegramMember objects
  */
 export async function getRunData(
   datasetId: string,
@@ -195,15 +196,20 @@ export async function getRunData(
     .dataset(datasetId)
     .listItems({ limit, offset });
 
-  // Map the raw items to TelegramMember type - matches Apify output structure
+  // Map the raw items to TelegramMember type
+  // Handle both bhansalisoft format (user_id, user_name) and standard format (id, usernames)
   const items: TelegramMember[] = result.items.map((item: Record<string, unknown>) => ({
     source_url: (item.source_url as string) || "",
     processor: (item.processor as string) || "",
     processed_at: (item.processed_at as string) || new Date().toISOString(),
-    id: String(item.id || ""),
+    // Handle bhansalisoft: user_id, standard: id or telegram_id
+    id: String(item.user_id || item.telegram_id || item.id || ""),
     first_name: (item.first_name as string) || null,
     last_name: (item.last_name as string) || null,
-    usernames: Array.isArray(item.usernames) ? item.usernames as string[] : [],
+    // Handle bhansalisoft: user_name (singular), standard: usernames (array)
+    usernames: item.user_name 
+      ? [item.user_name as string]
+      : (Array.isArray(item.usernames) ? item.usernames as string[] : []),
     phone: (item.phone as string) || null,
     type: (item.type as string) || "user",
     is_deleted: Boolean(item.is_deleted),
@@ -220,6 +226,29 @@ export async function getRunData(
 
   return {
     items,
+    total,
+    hasMore: offset + limit < total,
+  };
+}
+
+/**
+ * Get RAW data from a run's dataset (no transformation)
+ * Use this when you need the original data structure
+ */
+export async function getRunDataRaw(
+  datasetId: string,
+  limit = 100,
+  offset = 0
+): Promise<{ items: Record<string, unknown>[]; total: number; hasMore: boolean }> {
+  const dataset = await apifyClient.dataset(datasetId).get();
+  const total = dataset?.itemCount || 0;
+
+  const result = await apifyClient
+    .dataset(datasetId)
+    .listItems({ limit, offset });
+
+  return {
+    items: result.items as Record<string, unknown>[],
     total,
     hasMore: offset + limit < total,
   };
