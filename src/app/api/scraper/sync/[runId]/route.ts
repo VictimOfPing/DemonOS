@@ -42,6 +42,12 @@ export async function POST(
           : result.error || `Found ${result.itemsCount} items but 0 saved - check data structure`,
       },
       error: result.error,
+      errorCode: result.errorCode,
+      errorDetails: result.errorDetails,
+      debug: {
+        hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ? "configured" : "missing",
+      },
     }, { status: result.success ? 200 : 500 });
   } catch (error) {
     logger.error("Error in manual sync", error);

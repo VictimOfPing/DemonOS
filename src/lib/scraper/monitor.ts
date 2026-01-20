@@ -114,16 +114,32 @@ export async function checkRunStatus(runId: string): Promise<MonitoredRun | null
   }
 }
 
+/** Result of auto-save operation with detailed error info */
+export interface AutoSaveResult {
+  savedCount: number;
+  totalItems: number;
+  validItems: number;
+  error?: string;
+  errorCode?: string;
+  errorDetails?: string;
+}
+
 /**
  * Auto-save data for a completed run
  */
 export async function autoSaveRunData(
   dbRunId: string,
   datasetId: string
-): Promise<number> {
+): Promise<AutoSaveResult> {
   const supabase = getServerSupabase();
   
   try {
+    // Check if we have service role key
+    const hasServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!hasServiceKey) {
+      logger.warn("SUPABASE_SERVICE_ROLE_KEY not configured - using anon key, inserts may fail due to RLS");
+    }
+
     // Fetch all data from Apify
     let allItems: Record<string, unknown>[] = [];
     let offset = 0;
@@ -144,18 +160,22 @@ export async function autoSaveRunData(
     }
 
     if (allItems.length === 0) {
-      return 0;
+      return { savedCount: 0, totalItems: 0, validItems: 0 };
     }
 
     // Log first item to debug structure
     logger.info(`Sample item structure: ${JSON.stringify(allItems[0], null, 2)}`);
 
     // Get the source_url from the run's input config in database
-    const { data: runData } = await supabase
+    const { data: runData, error: runError } = await supabase
       .from("scraper_runs")
       .select("input_config")
       .eq("id", dbRunId)
       .single();
+    
+    if (runError) {
+      logger.error(`Failed to get run config: ${runError.message}`);
+    }
     
     const inputConfig = runData?.input_config as Record<string, unknown> || {};
     const defaultSourceUrl = (inputConfig.Target_Group || inputConfig.targetGroup || "unknown_group") as string;
@@ -216,8 +236,14 @@ export async function autoSaveRunData(
     logger.info(`Valid items to insert: ${validData.length} of ${insertData.length}`);
 
     if (validData.length === 0) {
-      logger.error("No valid items to insert - all items missing telegram_id");
-      return 0;
+      const errorMsg = "No valid items to insert - all items missing telegram_id";
+      logger.error(errorMsg);
+      return { 
+        savedCount: 0, 
+        totalItems: allItems.length, 
+        validItems: 0,
+        error: errorMsg 
+      };
     }
 
     // Log a sample of what we're trying to insert
@@ -227,7 +253,7 @@ export async function autoSaveRunData(
     // Insert in batches - try without upsert first to see the error
     const BATCH_SIZE = 500;
     let savedCount = 0;
-    let lastError: unknown = null;
+    let lastError: { code?: string; message?: string; details?: string; hint?: string } | null = null;
 
     for (let i = 0; i < validData.length; i += BATCH_SIZE) {
       const batch = validData.slice(i, i + BATCH_SIZE);
@@ -260,14 +286,14 @@ export async function autoSaveRunData(
             logger.info(`Batch ${i / BATCH_SIZE + 1}: upserted ${upsertData?.length || batch.length} rows after duplicate error`);
           } else {
             logger.error(`Upsert also failed: ${upsertError.message}`);
+            lastError = upsertError;
           }
         }
       }
     }
 
     if (savedCount === 0 && lastError) {
-      const err = lastError as { code?: string; message?: string; details?: string; hint?: string };
-      logger.error(`All batches failed. Error: code=${err.code}, message=${err.message}, details=${err.details}, hint=${err.hint}`);
+      logger.error(`All batches failed. Error: code=${lastError.code}, message=${lastError.message}, details=${lastError.details}, hint=${lastError.hint}`);
     }
 
     // Update run with final count
@@ -277,10 +303,24 @@ export async function autoSaveRunData(
       .eq("id", dbRunId);
 
     logger.info(`Auto-saved ${savedCount} items for run ${dbRunId}`);
-    return savedCount;
+    
+    return { 
+      savedCount, 
+      totalItems: allItems.length, 
+      validItems: validData.length,
+      error: lastError?.message,
+      errorCode: lastError?.code,
+      errorDetails: lastError?.details,
+    };
   } catch (error) {
     logger.error(`Failed to auto-save data for run ${dbRunId}`, error);
-    return 0;
+    const errMsg = error instanceof Error ? error.message : "Unknown error";
+    return { 
+      savedCount: 0, 
+      totalItems: 0, 
+      validItems: 0,
+      error: errMsg 
+    };
   }
 }
 
@@ -294,6 +334,8 @@ export async function syncRunData(runId: string): Promise<{
   dataSaved: number;
   sampleData?: Record<string, unknown>;
   error?: string;
+  errorCode?: string;
+  errorDetails?: string;
 }> {
   const supabase = getServerSupabase();
   
@@ -331,6 +373,9 @@ export async function syncRunData(runId: string): Promise<{
     // If run succeeded and has items, save the data to telegram_members
     let dataSaved = 0;
     let sampleData: Record<string, unknown> | undefined;
+    let saveError: string | undefined;
+    let saveErrorCode: string | undefined;
+    let saveErrorDetails: string | undefined;
     
     if (apifyRun.status === "SUCCEEDED" && apifyRun.itemsCount > 0) {
       // First, get a sample to return for debugging
@@ -339,16 +384,34 @@ export async function syncRunData(runId: string): Promise<{
         sampleData = items[0] as unknown as Record<string, unknown>;
       }
       
-      dataSaved = await autoSaveRunData(dbRun.id, apifyRun.datasetId);
+      const saveResult = await autoSaveRunData(dbRun.id, apifyRun.datasetId);
+      dataSaved = saveResult.savedCount;
+      saveError = saveResult.error;
+      saveErrorCode = saveResult.errorCode;
+      saveErrorDetails = saveResult.errorDetails;
       
-      // If no data was saved, return the sample for debugging
+      // If no data was saved, return detailed error info
       if (dataSaved === 0) {
+        // Build detailed error message
+        let errorMessage = "Data found but failed to save.";
+        if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+          errorMessage += " SUPABASE_SERVICE_ROLE_KEY not configured on server!";
+        }
+        if (saveError) {
+          errorMessage += ` DB Error: ${saveError}`;
+        }
+        if (saveResult.validItems === 0 && saveResult.totalItems > 0) {
+          errorMessage += " All items missing telegram_id field.";
+        }
+        
         return {
           success: false,
           itemsCount: apifyRun.itemsCount,
           dataSaved: 0,
           sampleData,
-          error: "Data found but failed to save. Check logs for details.",
+          error: errorMessage,
+          errorCode: saveErrorCode,
+          errorDetails: saveErrorDetails,
         };
       }
     }
@@ -422,10 +485,10 @@ export async function monitorActiveRuns(options: {
 
         // Auto-save data on successful completion
         if (autoSaveOnComplete && result.apifyStatus === "SUCCEEDED") {
-          const saved = await autoSaveRunData(run.id, result.datasetId);
-          if (saved > 0) {
+          const saveResult = await autoSaveRunData(run.id, result.datasetId);
+          if (saveResult.savedCount > 0) {
             result.dataSaved = true;
-            dataSaved += saved;
+            dataSaved += saveResult.savedCount;
           }
         }
       }
