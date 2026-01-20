@@ -663,7 +663,39 @@ export default function DatabasePage() {
                             </div>
                             <div className="flex items-center justify-between text-[10px] text-demon-text-muted">
                               <span>{formatDate(run.started_at)}</span>
-                              <span>{run.items_count} items</span>
+                              <div className="flex items-center gap-2">
+                                <span className={run.items_count === 0 ? "text-demon-warning" : ""}>
+                                  {run.items_count} items
+                                </span>
+                                {run.items_count === 0 && run.status === "SUCCEEDED" && (
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const btn = e.currentTarget;
+                                      btn.disabled = true;
+                                      btn.innerHTML = "...";
+                                      try {
+                                        const res = await fetch(`/api/scraper/sync/${run.run_id}`, { method: "POST" });
+                                        const data = await res.json();
+                                        if (data.success) {
+                                          alert(`Synced! ${data.data.itemsCount} items found, ${data.data.dataSaved} saved.`);
+                                          fetchRuns();
+                                          fetchGroups();
+                                        } else {
+                                          alert(`Error: ${data.error}`);
+                                        }
+                                      } catch (err) {
+                                        alert("Sync failed");
+                                      }
+                                      btn.disabled = false;
+                                      btn.innerHTML = "Sync";
+                                    }}
+                                    className="px-2 py-0.5 text-[10px] rounded bg-demon-primary/20 text-demon-primary hover:bg-demon-primary/30 transition-colors"
+                                  >
+                                    Sync
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </motion.div>
                         ))}

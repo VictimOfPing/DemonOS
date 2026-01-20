@@ -206,6 +206,71 @@ export async function autoSaveRunData(
 }
 
 /**
+ * Sync a specific run - fetch latest data from Apify and update database
+ * Use this for runs that completed but weren't synced properly
+ */
+export async function syncRunData(runId: string): Promise<{
+  success: boolean;
+  itemsCount: number;
+  dataSaved: number;
+  error?: string;
+}> {
+  const supabase = getServerSupabase();
+  
+  try {
+    // Get run info from Apify
+    const apifyRun = await getRunStatus(runId);
+    
+    // Get database record
+    const { data: dbRun } = await supabase
+      .from("scraper_runs")
+      .select("*")
+      .eq("run_id", runId)
+      .single();
+
+    if (!dbRun) {
+      return { success: false, itemsCount: 0, dataSaved: 0, error: "Run not found in database" };
+    }
+
+    const newDbStatus = mapApifyToDbStatus(apifyRun.status as ApifyRunStatus);
+    
+    // Update database with latest info from Apify
+    await supabase
+      .from("scraper_runs")
+      .update({
+        status: newDbStatus,
+        items_count: apifyRun.itemsCount,
+        duration_ms: apifyRun.durationMs,
+        finished_at: apifyRun.finishedAt,
+        error_message: apifyRun.errorMessage,
+      })
+      .eq("run_id", runId);
+
+    logger.info(`Synced run ${runId}: status=${newDbStatus}, items=${apifyRun.itemsCount}`);
+
+    // If run succeeded and has items, save the data to telegram_members
+    let dataSaved = 0;
+    if (apifyRun.status === "SUCCEEDED" && apifyRun.itemsCount > 0) {
+      dataSaved = await autoSaveRunData(dbRun.id, apifyRun.datasetId);
+    }
+
+    return {
+      success: true,
+      itemsCount: apifyRun.itemsCount,
+      dataSaved,
+    };
+  } catch (error) {
+    logger.error(`Failed to sync run ${runId}`, error);
+    return {
+      success: false,
+      itemsCount: 0,
+      dataSaved: 0,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+/**
  * Monitor all active runs and handle state changes
  */
 export async function monitorActiveRuns(options: {
@@ -220,11 +285,11 @@ export async function monitorActiveRuns(options: {
   const { autoSaveOnComplete = true } = options;
   const supabase = getServerSupabase();
   
-  // Get all active runs from database
+  // Get all active runs AND recently completed runs with 0 items (need sync)
   const { data: activeRuns, error } = await supabase
     .from("scraper_runs")
-    .select("run_id, id, dataset_id, status")
-    .in("status", ["pending", "running"]);
+    .select("run_id, id, dataset_id, status, items_count")
+    .or("status.in.(pending,running),and(status.eq.succeeded,items_count.eq.0)");
 
   if (error) {
     logger.error("Failed to fetch active runs", error);

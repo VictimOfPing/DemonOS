@@ -8,5 +8,6 @@ export {
   checkRunStatus,
   autoSaveRunData,
   getRunsSummary,
+  syncRunData,
   type MonitoredRun,
 } from "./monitor";
