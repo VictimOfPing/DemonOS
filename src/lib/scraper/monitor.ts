@@ -220,30 +220,54 @@ export async function autoSaveRunData(
       return 0;
     }
 
-    // Insert in batches
+    // Log a sample of what we're trying to insert
+    logger.info(`Sample insert data: ${JSON.stringify(validData[0], null, 2)}`);
+    logger.info(`run_id (UUID) being used: ${dbRunId}`);
+
+    // Insert in batches - try without upsert first to see the error
     const BATCH_SIZE = 500;
     let savedCount = 0;
     let lastError: unknown = null;
 
     for (let i = 0; i < validData.length; i += BATCH_SIZE) {
       const batch = validData.slice(i, i + BATCH_SIZE);
-      const { error } = await supabase
+      
+      // Try insert (not upsert) to see clearer errors
+      const { data, error } = await supabase
         .from("telegram_members")
-        .upsert(batch, {
-          onConflict: "telegram_id,source_url",
-          ignoreDuplicates: false,
-        });
+        .insert(batch)
+        .select("id");
 
       if (!error) {
-        savedCount += batch.length;
+        savedCount += data?.length || batch.length;
+        logger.info(`Batch ${i / BATCH_SIZE + 1}: inserted ${data?.length || batch.length} rows`);
       } else {
         lastError = error;
-        logger.error(`Batch insert error at ${i}: ${JSON.stringify(error)}`);
+        logger.error(`Batch insert error at ${i}: code=${error.code}, message=${error.message}, details=${error.details}, hint=${error.hint}`);
+        
+        // If it's a duplicate key error, try upsert for this batch
+        if (error.code === "23505") {
+          const { data: upsertData, error: upsertError } = await supabase
+            .from("telegram_members")
+            .upsert(batch, {
+              onConflict: "telegram_id,source_url",
+              ignoreDuplicates: true,
+            })
+            .select("id");
+          
+          if (!upsertError) {
+            savedCount += upsertData?.length || batch.length;
+            logger.info(`Batch ${i / BATCH_SIZE + 1}: upserted ${upsertData?.length || batch.length} rows after duplicate error`);
+          } else {
+            logger.error(`Upsert also failed: ${upsertError.message}`);
+          }
+        }
       }
     }
 
     if (savedCount === 0 && lastError) {
-      logger.error(`All batches failed. Last error: ${JSON.stringify(lastError)}`);
+      const err = lastError as { code?: string; message?: string; details?: string; hint?: string };
+      logger.error(`All batches failed. Error: code=${err.code}, message=${err.message}, details=${err.details}, hint=${err.hint}`);
     }
 
     // Update run with final count
