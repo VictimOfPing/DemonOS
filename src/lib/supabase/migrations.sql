@@ -194,6 +194,67 @@ CREATE INDEX IF NOT EXISTS idx_telegram_members_is_scam ON telegram_members(is_s
 CREATE INDEX IF NOT EXISTS idx_telegram_members_type ON telegram_members(type);
 
 -- =====================================================
+-- Table: scraped_data
+-- Generic table for all scraped data from any source
+-- =====================================================
+CREATE TABLE IF NOT EXISTS scraped_data (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    run_id UUID REFERENCES scraper_runs(id) ON DELETE SET NULL,  -- Link to scraper run
+    
+    -- Scraper info
+    scraper_type VARCHAR(50) NOT NULL,              -- e.g., "telegram", "instagram", "twitter"
+    scraper_actor VARCHAR(255),                     -- Apify actor ID that collected the data
+    
+    -- Source info
+    source_identifier TEXT NOT NULL,                -- Group/channel/page identifier
+    source_name TEXT,                               -- Human-readable source name
+    
+    -- Entity info (the actual scraped item)
+    entity_id VARCHAR(255) NOT NULL,                -- Unique ID within the platform (telegram_id, etc.)
+    entity_type VARCHAR(50) DEFAULT 'member',       -- member, post, message, etc.
+    entity_name TEXT,                               -- Display name
+    username VARCHAR(255),                          -- Username if available
+    display_name VARCHAR(255),                      -- First name or display name
+    profile_url TEXT,                               -- Link to profile
+    
+    -- Status flags
+    is_verified BOOLEAN DEFAULT FALSE,
+    is_premium BOOLEAN DEFAULT FALSE,
+    is_bot BOOLEAN DEFAULT FALSE,
+    is_suspicious BOOLEAN DEFAULT FALSE,            -- Scam, fake, etc.
+    is_active BOOLEAN DEFAULT TRUE,                 -- Not deleted
+    
+    -- Raw data storage
+    data JSONB DEFAULT '{}',                        -- All original scraped data
+    
+    -- Timestamps
+    scraped_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    -- Unique constraint: one entity per source per scraper type
+    UNIQUE(scraper_type, source_identifier, entity_id)
+);
+
+-- Indexes for scraped_data
+CREATE INDEX IF NOT EXISTS idx_scraped_data_run_id ON scraped_data(run_id);
+CREATE INDEX IF NOT EXISTS idx_scraped_data_scraper_type ON scraped_data(scraper_type);
+CREATE INDEX IF NOT EXISTS idx_scraped_data_source ON scraped_data(source_identifier);
+CREATE INDEX IF NOT EXISTS idx_scraped_data_entity_id ON scraped_data(entity_id);
+CREATE INDEX IF NOT EXISTS idx_scraped_data_username ON scraped_data(username);
+CREATE INDEX IF NOT EXISTS idx_scraped_data_created_at ON scraped_data(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scraped_data_data ON scraped_data USING GIN(data);
+CREATE INDEX IF NOT EXISTS idx_scraped_data_is_premium ON scraped_data(is_premium) WHERE is_premium = TRUE;
+CREATE INDEX IF NOT EXISTS idx_scraped_data_is_suspicious ON scraped_data(is_suspicious) WHERE is_suspicious = TRUE;
+
+-- Trigger for updated_at
+DROP TRIGGER IF EXISTS update_scraped_data_updated_at ON scraped_data;
+CREATE TRIGGER update_scraped_data_updated_at
+    BEFORE UPDATE ON scraped_data
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- =====================================================
 -- Table: scraper_schedules (for future scheduled runs)
 -- =====================================================
 CREATE TABLE IF NOT EXISTS scraper_schedules (
@@ -248,6 +309,7 @@ ALTER TABLE app_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scraper_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scraper_run_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE telegram_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scraped_data ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scraper_schedules ENABLE ROW LEVEL SECURITY;
 
 -- Policies: Allow all (adjust for production with proper auth)

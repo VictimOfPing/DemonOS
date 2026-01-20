@@ -13,13 +13,17 @@ import {
   ChevronRight,
   Eye,
   ExternalLink,
-  HardDrive,
   TrendingUp,
   Clock,
-  CheckCircle,
   Users,
   Crown,
   Bot,
+  AlertTriangle,
+  CheckCircle,
+  MessageSquare,
+  Instagram,
+  Twitter,
+  Globe,
 } from "lucide-react";
 import { NetworkBackground } from "@/components/background/NetworkBackground";
 import { ModMenuSidebar } from "@/components/layout/ModMenuSidebar";
@@ -27,38 +31,87 @@ import { MobileSidebar } from "@/components/layout/MobileSidebar";
 import { HUDOverlay } from "@/components/layout/HUDOverlay";
 import { NeonCard } from "@/components/ui/NeonCard";
 import { NeonButton } from "@/components/ui/NeonButton";
+import type { ScrapedDataRecord, ScraperType } from "@/types/scraped-data";
 
-interface GroupStats {
-  source_url: string;
-  member_count: number;
-  premium_count: number;
-  bot_count: number;
-  scam_count: number;
-  deleted_count: number;
-  last_scraped: string;
-}
+// Scraper type configuration
+const SCRAPER_CONFIGS: Record<ScraperType, {
+  name: string;
+  icon: React.ReactNode;
+  color: string;
+  bgColor: string;
+  profileUrlPrefix?: string;
+}> = {
+  telegram: {
+    name: "Telegram",
+    icon: <MessageSquare className="w-4 h-4" />,
+    color: "text-[#0088cc]",
+    bgColor: "bg-[#0088cc]/20",
+    profileUrlPrefix: "https://t.me/",
+  },
+  instagram: {
+    name: "Instagram",
+    icon: <Instagram className="w-4 h-4" />,
+    color: "text-[#E4405F]",
+    bgColor: "bg-[#E4405F]/20",
+    profileUrlPrefix: "https://instagram.com/",
+  },
+  twitter: {
+    name: "Twitter/X",
+    icon: <Twitter className="w-4 h-4" />,
+    color: "text-[#1DA1F2]",
+    bgColor: "bg-[#1DA1F2]/20",
+    profileUrlPrefix: "https://x.com/",
+  },
+  facebook: {
+    name: "Facebook",
+    icon: <Users className="w-4 h-4" />,
+    color: "text-[#1877F2]",
+    bgColor: "bg-[#1877F2]/20",
+    profileUrlPrefix: "https://facebook.com/",
+  },
+  linkedin: {
+    name: "LinkedIn",
+    icon: <Globe className="w-4 h-4" />,
+    color: "text-[#0A66C2]",
+    bgColor: "bg-[#0A66C2]/20",
+    profileUrlPrefix: "https://linkedin.com/in/",
+  },
+  tiktok: {
+    name: "TikTok",
+    icon: <Globe className="w-4 h-4" />,
+    color: "text-white",
+    bgColor: "bg-white/20",
+    profileUrlPrefix: "https://tiktok.com/@",
+  },
+  discord: {
+    name: "Discord",
+    icon: <Globe className="w-4 h-4" />,
+    color: "text-[#5865F2]",
+    bgColor: "bg-[#5865F2]/20",
+  },
+  whatsapp: {
+    name: "WhatsApp",
+    icon: <MessageSquare className="w-4 h-4" />,
+    color: "text-[#25D366]",
+    bgColor: "bg-[#25D366]/20",
+  },
+  custom: {
+    name: "Custom",
+    icon: <Globe className="w-4 h-4" />,
+    color: "text-demon-text-muted",
+    bgColor: "bg-demon-text-muted/20",
+  },
+};
 
-interface TelegramMember {
-  id: string;
-  source_url: string;
-  processor: string;
-  processed_at: string;
-  telegram_id: string;
-  first_name: string | null;
-  last_name: string | null;
-  usernames: string[];
-  phone: string | null;
-  type: string;
-  is_deleted: boolean;
-  is_verified: boolean;
-  is_premium: boolean;
-  is_scam: boolean;
-  is_fake: boolean;
-  is_restricted: boolean;
-  lang_code: string | null;
-  last_seen: string | null;
-  stories_hidden: boolean;
-  premium_contact: boolean;
+interface SourceStats {
+  sourceIdentifier: string;
+  sourceName: string | null;
+  recordCount: number;
+  premiumCount: number;
+  verifiedCount: number;
+  botCount: number;
+  suspiciousCount: number;
+  lastScraped: string;
 }
 
 interface RunInfo {
@@ -72,114 +125,151 @@ interface RunInfo {
 }
 
 export default function DatabasePage() {
-  const [groups, setGroups] = useState<GroupStats[]>([]);
-  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
-  const [members, setMembers] = useState<TelegramMember[]>([]);
-  const [totalMembers, setTotalMembers] = useState(0);
+  // State
+  const [activeScraperType, setActiveScraperType] = useState<ScraperType>("telegram");
+  const [availableTypes, setAvailableTypes] = useState<ScraperType[]>(["telegram"]);
+  const [sources, setSources] = useState<SourceStats[]>([]);
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [records, setRecords] = useState<ScrapedDataRecord[]>([]);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [runs, setRuns] = useState<RunInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-  const [viewMode, setViewMode] = useState<"groups" | "runs">("groups");
+  const [viewMode, setViewMode] = useState<"sources" | "runs">("sources");
   const pageSize = 20;
 
-  // Fetch group statistics (aggregated by source_url)
-  const fetchGroups = useCallback(async () => {
+  // Global stats
+  const [globalStats, setGlobalStats] = useState({
+    totalSources: 0,
+    totalRecords: 0,
+    premiumCount: 0,
+    verifiedCount: 0,
+    botCount: 0,
+    successfulRuns: 0,
+  });
+
+  // Fetch data aggregated by source
+  const fetchSources = useCallback(async (scraperType: ScraperType) => {
     try {
       const response = await fetch(
-        "/api/scraper/data?source=database&limit=10000"
+        `/api/scraper/data?source=database&scraperType=${scraperType}&limit=10000`
       );
       const data = await response.json();
 
       if (data.success && data.data?.items) {
-        // Aggregate by source_url (Telegram group)
-        const groupMap = new Map<string, GroupStats>();
+        // Aggregate by source_identifier
+        const sourceMap = new Map<string, SourceStats>();
 
-        data.data.items.forEach((member: TelegramMember) => {
-          const existing = groupMap.get(member.source_url);
+        data.data.items.forEach((record: ScrapedDataRecord) => {
+          const existing = sourceMap.get(record.sourceIdentifier);
           if (existing) {
-            existing.member_count++;
-            if (member.is_premium) existing.premium_count++;
-            if (member.type === "bot") existing.bot_count++;
-            if (member.is_scam) existing.scam_count++;
-            if (member.is_deleted) existing.deleted_count++;
-            if (
-              new Date(member.processed_at) > new Date(existing.last_scraped)
-            ) {
-              existing.last_scraped = member.processed_at;
+            existing.recordCount++;
+            if (record.isPremium) existing.premiumCount++;
+            if (record.isVerified) existing.verifiedCount++;
+            if (record.isBot) existing.botCount++;
+            if (record.isSuspicious) existing.suspiciousCount++;
+            if (new Date(record.createdAt) > new Date(existing.lastScraped)) {
+              existing.lastScraped = record.createdAt;
             }
           } else {
-            groupMap.set(member.source_url, {
-              source_url: member.source_url,
-              member_count: 1,
-              premium_count: member.is_premium ? 1 : 0,
-              bot_count: member.type === "bot" ? 1 : 0,
-              scam_count: member.is_scam ? 1 : 0,
-              deleted_count: member.is_deleted ? 1 : 0,
-              last_scraped: member.processed_at,
+            sourceMap.set(record.sourceIdentifier, {
+              sourceIdentifier: record.sourceIdentifier,
+              sourceName: record.sourceName,
+              recordCount: 1,
+              premiumCount: record.isPremium ? 1 : 0,
+              verifiedCount: record.isVerified ? 1 : 0,
+              botCount: record.isBot ? 1 : 0,
+              suspiciousCount: record.isSuspicious ? 1 : 0,
+              lastScraped: record.createdAt,
             });
           }
         });
 
-        setGroups(Array.from(groupMap.values()));
-        setTotalMembers(data.data.total || data.data.items.length);
+        const sourcesArray = Array.from(sourceMap.values());
+        setSources(sourcesArray);
+        
+        // Update global stats
+        setGlobalStats({
+          totalSources: sourcesArray.length,
+          totalRecords: data.data.total || data.data.items.length,
+          premiumCount: sourcesArray.reduce((acc, s) => acc + s.premiumCount, 0),
+          verifiedCount: sourcesArray.reduce((acc, s) => acc + s.verifiedCount, 0),
+          botCount: sourcesArray.reduce((acc, s) => acc + s.botCount, 0),
+          successfulRuns: runs.filter((r) => r.status === "SUCCEEDED").length,
+        });
       }
     } catch (error) {
-      console.error("Failed to fetch groups:", error);
+      console.error("Failed to fetch sources:", error);
     }
-  }, []);
+  }, [runs]);
 
-  // Fetch members for selected group (by source_url)
-  const fetchMembers = useCallback(
-    async (sourceUrl: string) => {
+  // Fetch records for selected source
+  const fetchRecords = useCallback(
+    async (sourceIdentifier: string) => {
       setIsLoading(true);
       try {
         const offset = (currentPage - 1) * pageSize;
         const response = await fetch(
-          `/api/scraper/data?source=database&sourceUrl=${encodeURIComponent(sourceUrl)}&limit=${pageSize}&offset=${offset}`
+          `/api/scraper/data?source=database&scraperType=${activeScraperType}&sourceIdentifier=${encodeURIComponent(sourceIdentifier)}&limit=${pageSize}&offset=${offset}`
         );
         const data = await response.json();
 
         if (data.success && data.data?.items) {
-          setMembers(data.data.items);
-          setTotalMembers(data.data.total || 0);
+          setRecords(data.data.items);
+          setTotalRecords(data.data.total || 0);
         }
       } catch (error) {
-        console.error("Failed to fetch members:", error);
+        console.error("Failed to fetch records:", error);
       } finally {
         setIsLoading(false);
       }
     },
-    [currentPage]
+    [currentPage, activeScraperType]
   );
+
+  // Fetch available scraper types
+  const fetchAvailableTypes = useCallback(async () => {
+    try {
+      // For now, we just check telegram. In future, query DB for distinct scraper_type values
+      const response = await fetch("/api/scraper/data?source=database&limit=1");
+      const data = await response.json();
+      
+      if (data.success) {
+        // Always show telegram as available
+        setAvailableTypes(["telegram"]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch available types:", error);
+    }
+  }, []);
 
   // Fetch recent runs
   const fetchRuns = useCallback(async () => {
     try {
-      const response = await fetch("/api/scraper/status?limit=10");
+      const response = await fetch("/api/scraper/runs?limit=20");
       const data = await response.json();
 
       if (data.success && data.data?.runs) {
         setRuns(
-          data.data.runs.map(
-            (run: {
-              id: string;
-              actorId: string;
-              status: string;
-              startedAt: string;
-              finishedAt: string | null;
-              itemsCount: number;
-            }) => ({
-              id: run.id,
-              run_id: run.id,
-              actor_name: "Telegram Scraper",
-              status: run.status,
-              started_at: run.startedAt,
-              finished_at: run.finishedAt,
-              items_count: run.itemsCount,
-            })
-          )
+          data.data.runs.map((run: {
+            id: string;
+            run_id: string;
+            actor_name?: string;
+            status: string;
+            started_at: string;
+            finished_at: string | null;
+            items_count: number;
+          }) => ({
+            id: run.id,
+            run_id: run.run_id,
+            actor_name: run.actor_name || "Scraper",
+            status: run.status,
+            started_at: run.started_at,
+            finished_at: run.finished_at,
+            items_count: run.items_count,
+          }))
         );
       }
     } catch (error) {
@@ -191,24 +281,33 @@ export default function DatabasePage() {
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
-      await Promise.all([fetchGroups(), fetchRuns()]);
+      await Promise.all([fetchAvailableTypes(), fetchRuns()]);
+      await fetchSources(activeScraperType);
       setIsLoading(false);
     };
     loadData();
-  }, [fetchGroups, fetchRuns]);
+  }, [fetchAvailableTypes, fetchRuns, fetchSources, activeScraperType]);
 
-  // Load members when group is selected
+  // Load records when source is selected
   useEffect(() => {
-    if (selectedGroup) {
-      fetchMembers(selectedGroup);
+    if (selectedSource) {
+      fetchRecords(selectedSource);
     }
-  }, [selectedGroup, fetchMembers]);
+  }, [selectedSource, fetchRecords]);
+
+  // Change scraper type
+  const handleScraperTypeChange = (type: ScraperType) => {
+    setActiveScraperType(type);
+    setSelectedSource(null);
+    setRecords([]);
+    setCurrentPage(1);
+  };
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await Promise.all([fetchGroups(), fetchRuns()]);
-    if (selectedGroup) {
-      await fetchMembers(selectedGroup);
+    await Promise.all([fetchSources(activeScraperType), fetchRuns()]);
+    if (selectedSource) {
+      await fetchRecords(selectedSource);
     }
     setIsRefreshing(false);
   };
@@ -225,134 +324,125 @@ export default function DatabasePage() {
     return `${days}d ago`;
   };
 
-  const getStatusBadge = (member: TelegramMember) => {
-    if (member.is_scam) {
+  const getStatusBadge = (record: ScrapedDataRecord) => {
+    if (record.isSuspicious) {
       return (
-        <span className="px-2 py-0.5 text-xs rounded-full bg-demon-danger/20 text-demon-danger">
-          ⚠️ Scam
+        <span className="px-2 py-0.5 text-xs rounded-full bg-demon-danger/20 text-demon-danger flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3" /> Suspicious
         </span>
       );
     }
-    if (member.is_fake) {
-      return (
-        <span className="px-2 py-0.5 text-xs rounded-full bg-demon-danger/20 text-demon-danger">
-          Fake
-        </span>
-      );
-    }
-    if (member.is_deleted) {
+    if (!record.isActive) {
       return (
         <span className="px-2 py-0.5 text-xs rounded-full bg-demon-text-muted/20 text-demon-text-muted">
-          Deleted
+          Inactive
         </span>
       );
     }
-    if (member.is_premium) {
+    if (record.isPremium) {
       return (
         <span className="px-2 py-0.5 text-xs rounded-full bg-demon-warning/20 text-demon-warning flex items-center gap-1">
           <Crown className="w-3 h-3" /> Premium
         </span>
       );
     }
-    if (member.type === "bot") {
+    if (record.isBot) {
       return (
         <span className="px-2 py-0.5 text-xs rounded-full bg-demon-accent/20 text-demon-accent flex items-center gap-1">
           <Bot className="w-3 h-3" /> Bot
         </span>
       );
     }
-    if (member.is_verified) {
+    if (record.isVerified) {
       return (
-        <span className="px-2 py-0.5 text-xs rounded-full bg-demon-success/20 text-demon-success">
-          ✓ Verified
+        <span className="px-2 py-0.5 text-xs rounded-full bg-demon-success/20 text-demon-success flex items-center gap-1">
+          <CheckCircle className="w-3 h-3" /> Verified
         </span>
       );
     }
     return (
       <span className="px-2 py-0.5 text-xs rounded-full bg-demon-primary/20 text-demon-primary">
-        User
+        Active
       </span>
     );
   };
 
   const getRunStatusBadge = (status: string) => {
-    switch (status) {
-      case "RUNNING":
-      case "READY":
-        return (
-          <span className="px-2 py-0.5 text-xs rounded-full bg-demon-primary/20 text-demon-primary animate-pulse">
-            Running
-          </span>
-        );
-      case "SUCCEEDED":
-        return (
-          <span className="px-2 py-0.5 text-xs rounded-full bg-demon-success/20 text-demon-success">
-            Completed
-          </span>
-        );
-      case "FAILED":
-      case "TIMED-OUT":
-        return (
-          <span className="px-2 py-0.5 text-xs rounded-full bg-demon-danger/20 text-demon-danger">
-            Failed
-          </span>
-        );
-      case "ABORTED":
-        return (
-          <span className="px-2 py-0.5 text-xs rounded-full bg-demon-warning/20 text-demon-warning">
-            Aborted
-          </span>
-        );
-      default:
-        return (
-          <span className="px-2 py-0.5 text-xs rounded-full bg-demon-text-muted/20 text-demon-text-muted">
-            {status}
-          </span>
-        );
+    const statusLower = status.toLowerCase();
+    if (statusLower === "running" || statusLower === "pending") {
+      return (
+        <span className="px-2 py-0.5 text-xs rounded-full bg-demon-primary/20 text-demon-primary animate-pulse">
+          Running
+        </span>
+      );
     }
+    if (statusLower === "succeeded") {
+      return (
+        <span className="px-2 py-0.5 text-xs rounded-full bg-demon-success/20 text-demon-success">
+          Completed
+        </span>
+      );
+    }
+    if (statusLower === "failed" || statusLower === "timed_out") {
+      return (
+        <span className="px-2 py-0.5 text-xs rounded-full bg-demon-danger/20 text-demon-danger">
+          Failed
+        </span>
+      );
+    }
+    if (statusLower === "aborted") {
+      return (
+        <span className="px-2 py-0.5 text-xs rounded-full bg-demon-warning/20 text-demon-warning">
+          Aborted
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 py-0.5 text-xs rounded-full bg-demon-text-muted/20 text-demon-text-muted">
+        {status}
+      </span>
+    );
   };
 
   const exportData = async () => {
     try {
       const response = await fetch(
-        `/api/scraper/data?source=database${selectedGroup ? `&sourceUrl=${encodeURIComponent(selectedGroup)}` : ""}&limit=10000`
+        `/api/scraper/data?source=database&scraperType=${activeScraperType}${selectedSource ? `&sourceIdentifier=${encodeURIComponent(selectedSource)}` : ""}&limit=10000`
       );
       const data = await response.json();
 
       if (data.success && data.data?.items) {
         const csv = [
           [
-            "Telegram ID",
-            "Usernames",
-            "First Name",
-            "Last Name",
-            "Phone",
+            "Entity ID",
+            "Username",
+            "Display Name",
+            "Entity Name",
             "Type",
             "Premium",
             "Verified",
-            "Scam",
-            "Deleted",
-            "Language",
-            "Last Seen",
-            "Source URL",
-            "Processed At",
+            "Bot",
+            "Suspicious",
+            "Active",
+            "Source",
+            "Profile URL",
+            "Created At",
           ].join(","),
-          ...data.data.items.map((m: TelegramMember) =>
+          ...data.data.items.map((r: ScrapedDataRecord) =>
             [
-              m.telegram_id || m.id,
-              (m.usernames || []).join(";"),
-              m.first_name || "",
-              m.last_name || "",
-              m.phone || "",
-              m.type,
-              m.is_premium,
-              m.is_verified,
-              m.is_scam,
-              m.is_deleted,
-              m.lang_code || "",
-              m.last_seen || "",
-              m.source_url,
-              m.processed_at,
+              r.entityId,
+              r.username || "",
+              r.displayName || "",
+              r.entityName || "",
+              r.entityType,
+              r.isPremium,
+              r.isVerified,
+              r.isBot,
+              r.isSuspicious,
+              r.isActive,
+              r.sourceIdentifier,
+              r.profileUrl || "",
+              r.createdAt,
             ].join(",")
           ),
         ].join("\n");
@@ -361,7 +451,7 @@ export default function DatabasePage() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `telegram_members_${new Date().toISOString().split("T")[0]}.csv`;
+        a.download = `${activeScraperType}_data_${new Date().toISOString().split("T")[0]}.csv`;
         a.click();
         URL.revokeObjectURL(url);
       }
@@ -371,23 +461,18 @@ export default function DatabasePage() {
     }
   };
 
-  const selectedGroupInfo = groups.find((g) => g.source_url === selectedGroup);
-  const totalPages = Math.ceil(totalMembers / pageSize);
+  const selectedSourceInfo = sources.find((s) => s.sourceIdentifier === selectedSource);
+  const totalPages = Math.ceil(totalRecords / pageSize);
+  const config = SCRAPER_CONFIGS[activeScraperType];
 
-  // Extract group name from source_url (e.g., "https://t.me/groupname" -> "groupname")
-  const getGroupName = (sourceUrl: string) => {
-    const match = sourceUrl.match(/t\.me\/([^/?]+)/);
-    return match ? `@${match[1]}` : sourceUrl;
-  };
-
-  // Filter members by search (searches in usernames array and names)
-  const filteredMembers = members.filter(
-    (m) =>
+  // Filter records by search
+  const filteredRecords = records.filter(
+    (r) =>
       !searchQuery ||
-      m.usernames?.some(u => u.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      m.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.last_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.telegram_id?.toLowerCase().includes(searchQuery.toLowerCase())
+      r.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.entityName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.entityId?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -422,7 +507,7 @@ export default function DatabasePage() {
                   Database Viewer
                 </h1>
                 <p className="text-xs sm:text-sm text-demon-text-muted mt-1">
-                  Browse and manage scraped data from Supabase
+                  Browse and manage scraped data
                 </p>
               </div>
 
@@ -449,6 +534,45 @@ export default function DatabasePage() {
               </div>
             </motion.div>
 
+            {/* Platform Tabs */}
+            <motion.div
+              className="flex flex-wrap gap-2"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 }}
+            >
+              {availableTypes.map((type) => {
+                const typeConfig = SCRAPER_CONFIGS[type];
+                const isActive = activeScraperType === type;
+                return (
+                  <button
+                    key={type}
+                    onClick={() => handleScraperTypeChange(type)}
+                    className={`
+                      flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+                      transition-all duration-200 border
+                      ${isActive 
+                        ? `${typeConfig.bgColor} ${typeConfig.color} border-current` 
+                        : "bg-demon-bg/50 text-demon-text-muted border-demon-primary/10 hover:border-demon-primary/30"
+                      }
+                    `}
+                  >
+                    {typeConfig.icon}
+                    {typeConfig.name}
+                  </button>
+                );
+              })}
+              {/* Future platforms placeholder */}
+              <button
+                disabled
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+                           bg-demon-bg/30 text-demon-text-muted/50 border border-dashed border-demon-primary/10
+                           cursor-not-allowed"
+              >
+                + Add Platform
+              </button>
+            </motion.div>
+
             {/* Stats Overview */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <motion.div
@@ -458,14 +582,14 @@ export default function DatabasePage() {
                 transition={{ delay: 0.1 }}
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-demon-primary/20 flex items-center justify-center">
-                    <Database className="w-5 h-5 text-demon-primary" />
+                  <div className={`w-10 h-10 rounded-xl ${config.bgColor} flex items-center justify-center ${config.color}`}>
+                    {config.icon}
                   </div>
                   <div>
                     <p className="text-2xl font-semibold text-demon-text">
-                      {groups.length}
+                      {sources.length}
                     </p>
-                    <p className="text-xs text-demon-text-muted">Groups</p>
+                    <p className="text-xs text-demon-text-muted">Sources</p>
                   </div>
                 </div>
               </motion.div>
@@ -482,13 +606,9 @@ export default function DatabasePage() {
                   </div>
                   <div>
                     <p className="text-2xl font-semibold text-demon-text">
-                      {groups
-                        .reduce((acc, g) => acc + g.member_count, 0)
-                        .toLocaleString()}
+                      {sources.reduce((acc, s) => acc + s.recordCount, 0).toLocaleString()}
                     </p>
-                    <p className="text-xs text-demon-text-muted">
-                      Total Members
-                    </p>
+                    <p className="text-xs text-demon-text-muted">Total Records</p>
                   </div>
                 </div>
               </motion.div>
@@ -505,9 +625,7 @@ export default function DatabasePage() {
                   </div>
                   <div>
                     <p className="text-2xl font-semibold text-demon-text">
-                      {groups
-                        .reduce((acc, g) => acc + g.premium_count, 0)
-                        .toLocaleString()}
+                      {sources.reduce((acc, s) => acc + s.premiumCount, 0).toLocaleString()}
                     </p>
                     <p className="text-xs text-demon-text-muted">Premium</p>
                   </div>
@@ -526,31 +644,29 @@ export default function DatabasePage() {
                   </div>
                   <div>
                     <p className="text-2xl font-semibold text-demon-text">
-                      {runs.filter((r) => r.status === "SUCCEEDED").length}
+                      {runs.filter((r) => r.status.toLowerCase() === "succeeded").length}
                     </p>
-                    <p className="text-xs text-demon-text-muted">
-                      Successful Runs
-                    </p>
+                    <p className="text-xs text-demon-text-muted">Successful Runs</p>
                   </div>
                 </div>
               </motion.div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              {/* Sidebar - Groups/Runs List */}
+              {/* Sidebar - Sources/Runs List */}
               <div className="lg:col-span-1">
                 <NeonCard variant="default">
                   {/* View Toggle */}
                   <div className="flex mb-4 p-1 rounded-xl bg-demon-bg/50">
                     <button
-                      onClick={() => setViewMode("groups")}
+                      onClick={() => setViewMode("sources")}
                       className={`flex-1 py-2 px-3 text-xs rounded-lg transition-colors ${
-                        viewMode === "groups"
+                        viewMode === "sources"
                           ? "bg-demon-primary/20 text-demon-primary"
                           : "text-demon-text-muted hover:text-demon-text"
                       }`}
                     >
-                      Groups
+                      Sources
                     </button>
                     <button
                       onClick={() => setViewMode("runs")}
@@ -564,35 +680,35 @@ export default function DatabasePage() {
                     </button>
                   </div>
 
-                  {viewMode === "groups" ? (
+                  {viewMode === "sources" ? (
                     <>
                       <div className="flex items-center gap-2 mb-4">
-                        <Database className="w-4 h-4 text-demon-primary" />
+                        <div className={`${config.color}`}>{config.icon}</div>
                         <span className="text-sm font-medium text-demon-text">
-                          Groups ({groups.length})
+                          {config.name} Sources ({sources.length})
                         </span>
                       </div>
 
                       <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                        {groups.length === 0 && !isLoading && (
+                        {sources.length === 0 && !isLoading && (
                           <p className="text-sm text-demon-text-muted text-center py-4">
                             No data yet. Run a scraper first!
                           </p>
                         )}
-                        {groups.map((group, index) => (
+                        {sources.map((source, index) => (
                           <motion.button
-                            key={group.source_url}
+                            key={source.sourceIdentifier}
                             className={`
                               w-full flex items-center gap-3 p-3 rounded-xl text-left
                               transition-all duration-200
                               ${
-                                selectedGroup === group.source_url
+                                selectedSource === source.sourceIdentifier
                                   ? "bg-demon-primary/15 border border-demon-primary/30"
                                   : "bg-demon-bg/30 border border-transparent hover:border-demon-primary/20 hover:bg-demon-bg/50"
                               }
                             `}
                             onClick={() => {
-                              setSelectedGroup(group.source_url);
+                              setSelectedSource(source.sourceIdentifier);
                               setCurrentPage(1);
                             }}
                             initial={{ opacity: 0, x: -20 }}
@@ -601,29 +717,27 @@ export default function DatabasePage() {
                           >
                             <Table
                               className={`w-4 h-4 ${
-                                selectedGroup === group.source_url
+                                selectedSource === source.sourceIdentifier
                                   ? "text-demon-accent"
                                   : "text-demon-text-muted"
                               }`}
                             />
                             <div className="flex-1 min-w-0">
                               <div className="text-sm font-medium truncate text-demon-text">
-                                {getGroupName(group.source_url)}
+                                {source.sourceName || source.sourceIdentifier}
                               </div>
                               <div className="flex items-center gap-2 text-[10px] text-demon-text-muted mt-0.5">
-                                <span>
-                                  {group.member_count.toLocaleString()} members
-                                </span>
-                                {group.premium_count > 0 && (
+                                <span>{source.recordCount.toLocaleString()} records</span>
+                                {source.premiumCount > 0 && (
                                   <span className="text-demon-warning">
-                                    {group.premium_count} ⭐
+                                    {source.premiumCount} ⭐
                                   </span>
                                 )}
                               </div>
                             </div>
                             <ChevronRight
                               className={`w-4 h-4 transition-transform ${
-                                selectedGroup === group.source_url
+                                selectedSource === source.sourceIdentifier
                                   ? "text-demon-accent rotate-90"
                                   : "text-demon-text-muted"
                               }`}
@@ -667,20 +781,20 @@ export default function DatabasePage() {
                                 <span className={run.items_count === 0 ? "text-demon-warning" : ""}>
                                   {run.items_count} items
                                 </span>
-                                {run.items_count === 0 && run.status === "SUCCEEDED" && (
+                                {run.items_count === 0 && run.status.toLowerCase() === "succeeded" && (
                                   <button
                                     onClick={async (e) => {
                                       e.stopPropagation();
                                       const btn = e.currentTarget;
                                       btn.disabled = true;
-                                      btn.innerHTML = "...";
+                                      btn.textContent = "...";
                                       try {
                                         const res = await fetch(`/api/scraper/sync/${run.run_id}`, { method: "POST" });
                                         const data = await res.json();
                                         if (data.success) {
-                                          alert(`Synced! ${data.data.itemsCount} items found, ${data.data.dataSaved} saved.`);
+                                          alert(`Synced! ${data.data.itemsFound} items found, ${data.data.itemsSaved} saved.`);
                                           fetchRuns();
-                                          fetchGroups();
+                                          fetchSources(activeScraperType);
                                         } else {
                                           alert(`Error: ${data.error}`);
                                         }
@@ -688,7 +802,7 @@ export default function DatabasePage() {
                                         alert("Sync failed");
                                       }
                                       btn.disabled = false;
-                                      btn.innerHTML = "Sync";
+                                      btn.textContent = "Sync";
                                     }}
                                     className="px-2 py-0.5 text-[10px] rounded bg-demon-primary/20 text-demon-primary hover:bg-demon-primary/30 transition-colors"
                                   >
@@ -709,32 +823,30 @@ export default function DatabasePage() {
               <div className="lg:col-span-3">
                 <NeonCard variant="default">
                   {/* Table Header */}
-                  {selectedGroupInfo ? (
+                  {selectedSourceInfo ? (
                     <div className="flex items-center justify-between mb-4 pb-4 border-b border-demon-primary/10">
                       <div>
                         <h2 className="text-lg font-semibold text-demon-text">
-                          {getGroupName(selectedGroupInfo.source_url)}
+                          {selectedSourceInfo.sourceName || selectedSourceInfo.sourceIdentifier}
                         </h2>
                         <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-demon-text-muted">
-                          <span>
-                            {selectedGroupInfo.member_count.toLocaleString()} members
-                          </span>
+                          <span>{selectedSourceInfo.recordCount.toLocaleString()} records</span>
                           <span>•</span>
                           <span className="text-demon-warning">
-                            {selectedGroupInfo.premium_count} ⭐ premium
+                            {selectedSourceInfo.premiumCount} ⭐ premium
                           </span>
-                          {selectedGroupInfo.scam_count > 0 && (
+                          {selectedSourceInfo.suspiciousCount > 0 && (
                             <>
                               <span>•</span>
                               <span className="text-demon-danger">
-                                {selectedGroupInfo.scam_count} ⚠️ scam
+                                {selectedSourceInfo.suspiciousCount} ⚠️ suspicious
                               </span>
                             </>
                           )}
                           <span>•</span>
                           <span className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            {formatDate(selectedGroupInfo.last_scraped)}
+                            {formatDate(selectedSourceInfo.lastScraped)}
                           </span>
                         </div>
                       </div>
@@ -744,7 +856,7 @@ export default function DatabasePage() {
                           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-demon-text-muted" />
                           <input
                             type="text"
-                            placeholder="Search members..."
+                            placeholder="Search..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="pl-9 pr-4 py-2 text-sm bg-demon-bg border border-demon-primary/20 
@@ -762,16 +874,16 @@ export default function DatabasePage() {
                     <div className="text-center py-12">
                       <Database className="w-12 h-12 text-demon-primary/30 mx-auto mb-4" />
                       <h3 className="text-lg font-medium text-demon-text mb-2">
-                        Select a Group
+                        Select a Source
                       </h3>
                       <p className="text-sm text-demon-text-muted">
-                        Choose a group from the sidebar to view its members
+                        Choose a source from the sidebar to view its data
                       </p>
                     </div>
                   )}
 
                   {/* Data Table */}
-                  {selectedGroup && (
+                  {selectedSource && (
                     <>
                       <div className="overflow-x-auto">
                         <table className="w-full">
@@ -784,10 +896,10 @@ export default function DatabasePage() {
                                 Name
                               </th>
                               <th className="text-left py-3 px-4 text-xs font-medium uppercase text-demon-text-muted">
-                                User ID
+                                ID
                               </th>
                               <th className="text-left py-3 px-4 text-xs font-medium uppercase text-demon-text-muted">
-                                Type
+                                Status
                               </th>
                               <th className="text-right py-3 px-4 text-xs font-medium uppercase text-demon-text-muted">
                                 Actions
@@ -801,20 +913,17 @@ export default function DatabasePage() {
                                   <RefreshCw className="w-6 h-6 animate-spin text-demon-primary mx-auto" />
                                 </td>
                               </tr>
-                            ) : filteredMembers.length === 0 ? (
+                            ) : filteredRecords.length === 0 ? (
                               <tr>
-                                <td
-                                  colSpan={5}
-                                  className="py-8 text-center text-demon-text-muted"
-                                >
-                                  No members found
+                                <td colSpan={5} className="py-8 text-center text-demon-text-muted">
+                                  No records found
                                 </td>
                               </tr>
                             ) : (
                               <AnimatePresence>
-                                {filteredMembers.map((member, index) => (
+                                {filteredRecords.map((record, index) => (
                                   <motion.tr
-                                    key={member.id || member.telegram_id}
+                                    key={record.id}
                                     className="border-b border-demon-primary/5 hover:bg-demon-primary/5 transition-colors"
                                     initial={{ opacity: 0, y: 10 }}
                                     animate={{ opacity: 1, y: 0 }}
@@ -823,41 +932,25 @@ export default function DatabasePage() {
                                     <td className="py-3 px-4">
                                       <div className="max-w-xs">
                                         <p className="text-sm text-demon-text truncate">
-                                          {member.usernames && member.usernames.length > 0
-                                            ? `@${member.usernames[0]}`
-                                            : "-"}
+                                          {record.username ? `@${record.username}` : "-"}
                                         </p>
-                                        {member.usernames && member.usernames.length > 1 && (
-                                          <p className="text-[10px] text-demon-text-muted truncate">
-                                            +{member.usernames.length - 1} more
-                                          </p>
-                                        )}
                                         <p className="text-[10px] text-demon-text-muted mt-0.5">
-                                          {formatDate(member.processed_at)}
+                                          {formatDate(record.createdAt)}
                                         </p>
                                       </div>
                                     </td>
                                     <td className="py-3 px-4">
-                                      <div>
-                                        <span className="text-sm text-demon-text">
-                                          {[member.first_name, member.last_name]
-                                            .filter(Boolean)
-                                            .join(" ") || "-"}
-                                        </span>
-                                        {member.lang_code && (
-                                          <span className="ml-2 text-[10px] text-demon-text-muted">
-                                            ({member.lang_code})
-                                          </span>
-                                        )}
-                                      </div>
-                                    </td>
-                                    <td className="py-3 px-4">
-                                      <span className="text-sm font-mono text-demon-text-muted">
-                                        {member.telegram_id || member.id}
+                                      <span className="text-sm text-demon-text">
+                                        {record.entityName || record.displayName || "-"}
                                       </span>
                                     </td>
                                     <td className="py-3 px-4">
-                                      {getStatusBadge(member)}
+                                      <span className="text-sm font-mono text-demon-text-muted">
+                                        {record.entityId}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      {getStatusBadge(record)}
                                     </td>
                                     <td className="py-3 px-4">
                                       <div className="flex items-center justify-end gap-1">
@@ -868,14 +961,14 @@ export default function DatabasePage() {
                                         >
                                           <Eye className="w-4 h-4" />
                                         </button>
-                                        {member.usernames && member.usernames.length > 0 && (
+                                        {(record.profileUrl || record.username) && (
                                           <a
-                                            href={`https://t.me/${member.usernames[0]}`}
+                                            href={record.profileUrl || `${config.profileUrlPrefix}${record.username}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="p-2 rounded-lg bg-demon-accent/10 text-demon-accent 
                                                      hover:bg-demon-accent/20 transition-colors"
-                                            title="Open Telegram"
+                                            title={`Open ${config.name}`}
                                           >
                                             <ExternalLink className="w-4 h-4" />
                                           </a>
@@ -900,14 +993,11 @@ export default function DatabasePage() {
                       {/* Pagination */}
                       <div className="flex items-center justify-between mt-4 pt-4 border-t border-demon-primary/10">
                         <span className="text-sm text-demon-text-muted">
-                          Page {currentPage} of {totalPages || 1} (
-                          {totalMembers.toLocaleString()} total)
+                          Page {currentPage} of {totalPages || 1} ({totalRecords.toLocaleString()} total)
                         </span>
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() =>
-                              setCurrentPage((p) => Math.max(1, p - 1))
-                            }
+                            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                             disabled={currentPage === 1}
                             className="px-4 py-2 text-sm rounded-xl bg-demon-bg border 
                                      border-demon-primary/20 text-demon-text-muted 
@@ -917,9 +1007,7 @@ export default function DatabasePage() {
                             Previous
                           </button>
                           <button
-                            onClick={() =>
-                              setCurrentPage((p) => Math.min(totalPages, p + 1))
-                            }
+                            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                             disabled={currentPage >= totalPages}
                             className="px-4 py-2 text-sm rounded-xl bg-demon-bg border 
                                      border-demon-primary/20 text-demon-text-muted 
