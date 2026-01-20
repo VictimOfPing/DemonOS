@@ -87,15 +87,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           .eq("scraper_type", scraperType);
 
         if (distinctSources) {
-          const uniqueSources = new Map<string, { name: string | null }>();
+          const uniqueSources: Record<string, { name: string | null }> = {};
           distinctSources.forEach((s: { source_identifier: string; source_name: string | null }) => {
-            if (!uniqueSources.has(s.source_identifier)) {
-              uniqueSources.set(s.source_identifier, { name: s.source_name });
+            if (!uniqueSources[s.source_identifier]) {
+              uniqueSources[s.source_identifier] = { name: s.source_name };
             }
           });
 
           // Get counts for each source
-          for (const [sourceId, info] of uniqueSources) {
+          const sourceIds = Object.keys(uniqueSources);
+          for (const sourceId of sourceIds) {
+            const info = uniqueSources[sourceId];
             const { count } = await supabase
               .from("scraped_data")
               .select("*", { count: "exact", head: true })

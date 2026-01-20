@@ -350,7 +350,22 @@ GROUP BY sr.id
 ORDER BY sr.started_at DESC
 LIMIT 100;
 
--- View: Group statistics (by source_url)
+-- View: Scraped data statistics (aggregated by source - FAST)
+CREATE OR REPLACE VIEW scraped_data_stats AS
+SELECT 
+    scraper_type,
+    source_identifier,
+    source_name,
+    COUNT(*) as record_count,
+    COUNT(*) FILTER (WHERE is_premium) as premium_count,
+    COUNT(*) FILTER (WHERE is_verified) as verified_count,
+    COUNT(*) FILTER (WHERE is_bot) as bot_count,
+    COUNT(*) FILTER (WHERE is_suspicious) as suspicious_count,
+    MAX(created_at) as last_scraped
+FROM scraped_data
+GROUP BY scraper_type, source_identifier, source_name;
+
+-- View: Group statistics (by source_url) - Legacy for telegram_members
 CREATE OR REPLACE VIEW telegram_group_stats AS
 SELECT 
     source_url,
