@@ -188,7 +188,7 @@ export async function autoSaveRunData(
       }
 
       return {
-        run_id: dbRunId,
+        // Skip run_id to avoid foreign key issues - we can link later
         source_url: sourceUrl,
         processor: "bhansalisoft/telegram-group-member-scraper",
         processed_at: new Date().toISOString(),
