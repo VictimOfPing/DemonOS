@@ -410,54 +410,115 @@ export default function DatabasePage() {
     );
   };
 
-  const exportData = async () => {
+  // Export dropdown state
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  // Helper: escape CSV value properly
+  const escapeCSV = (value: string | number | boolean | null | undefined): string => {
+    if (value === null || value === undefined) return "";
+    const str = String(value);
+    // If contains comma, quote, or newline, wrap in quotes and escape quotes
+    if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  // Helper: clean string for export (remove problematic characters)
+  const cleanString = (value: string | null | undefined): string => {
+    if (!value) return "";
+    // Remove emojis and special unicode for cleaner export
+    return value.replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, "").trim();
+  };
+
+  const exportData = async (format: "csv" | "json") => {
+    setShowExportMenu(false);
     try {
       const response = await fetch(
-        `/api/scraper/data?source=database&scraperType=${activeScraperType}${selectedSource ? `&sourceIdentifier=${encodeURIComponent(selectedSource)}` : ""}&limit=10000`
+        `/api/scraper/data?source=database&scraperType=${activeScraperType}${selectedSource ? `&sourceIdentifier=${encodeURIComponent(selectedSource)}` : ""}&limit=50000`
       );
       const data = await response.json();
 
-      if (data.success && data.data?.items) {
-        const csv = [
-          [
-            "Entity ID",
-            "Username",
-            "Display Name",
-            "Entity Name",
-            "Type",
-            "Premium",
-            "Verified",
-            "Bot",
-            "Suspicious",
-            "Active",
-            "Source",
-            "Profile URL",
-            "Created At",
-          ].join(","),
-          ...data.data.items.map((r: ScrapedDataRecord) =>
-            [
-              r.entityId,
-              r.username || "",
-              r.displayName || "",
-              r.entityName || "",
-              r.entityType,
-              r.isPremium,
-              r.isVerified,
-              r.isBot,
-              r.isSuspicious,
-              r.isActive,
-              r.sourceIdentifier,
-              r.profileUrl || "",
-              r.createdAt,
-            ].join(",")
-          ),
-        ].join("\n");
+      if (!data.success || !data.data?.items) {
+        alert("No data to export");
+        return;
+      }
 
-        const blob = new Blob([csv], { type: "text/csv" });
+      const items = data.data.items as ScrapedDataRecord[];
+      const timestamp = new Date().toISOString().split("T")[0];
+      const sourceSuffix = selectedSource ? `_${cleanString(selectedSource).replace(/[^a-zA-Z0-9]/g, "_").substring(0, 30)}` : "";
+
+      if (format === "json") {
+        // JSON Export - clean and structured
+        const exportData = items.map((r) => ({
+          id: r.entityId,
+          username: r.username || null,
+          firstName: r.displayName || null,
+          fullName: r.entityName || null,
+          type: r.entityType,
+          flags: {
+            premium: r.isPremium,
+            verified: r.isVerified,
+            bot: r.isBot,
+            suspicious: r.isSuspicious,
+            active: r.isActive,
+          },
+          source: cleanString(r.sourceIdentifier),
+          profileUrl: r.profileUrl || null,
+          scrapedAt: r.createdAt,
+        }));
+
+        const jsonString = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([jsonString], { type: "application/json;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `${activeScraperType}_data_${new Date().toISOString().split("T")[0]}.csv`;
+        a.download = `${activeScraperType}${sourceSuffix}_${timestamp}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        // CSV Export - clean with proper escaping
+        const headers = [
+          "ID",
+          "Username", 
+          "First Name",
+          "Full Name",
+          "Type",
+          "Premium",
+          "Verified",
+          "Bot",
+          "Suspicious",
+          "Active",
+          "Source",
+          "Profile URL",
+          "Scraped At",
+        ];
+
+        const rows = items.map((r) => [
+          escapeCSV(r.entityId),
+          escapeCSV(r.username),
+          escapeCSV(cleanString(r.displayName)),
+          escapeCSV(cleanString(r.entityName)),
+          escapeCSV(r.entityType),
+          r.isPremium ? "Yes" : "No",
+          r.isVerified ? "Yes" : "No",
+          r.isBot ? "Yes" : "No",
+          r.isSuspicious ? "Yes" : "No",
+          r.isActive ? "Yes" : "No",
+          escapeCSV(cleanString(r.sourceIdentifier)),
+          escapeCSV(r.profileUrl),
+          escapeCSV(r.createdAt?.split("T")[0] || ""),
+        ]);
+
+        // Add UTF-8 BOM for Excel compatibility
+        const BOM = "\uFEFF";
+        const csv = BOM + [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
+
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${activeScraperType}${sourceSuffix}_${timestamp}.csv`;
         a.click();
         URL.revokeObjectURL(url);
       }
@@ -530,13 +591,50 @@ export default function DatabasePage() {
                 >
                   Sync
                 </NeonButton>
-                <NeonButton
-                  variant="primary"
-                  icon={<Download className="w-4 h-4" />}
-                  onClick={exportData}
-                >
-                  Export
-                </NeonButton>
+                
+                {/* Export Dropdown */}
+                <div className="relative">
+                  <NeonButton
+                    variant="primary"
+                    icon={<Download className="w-4 h-4" />}
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                  >
+                    Export
+                  </NeonButton>
+                  
+                  {showExportMenu && (
+                    <>
+                      {/* Backdrop to close menu */}
+                      <div 
+                        className="fixed inset-0 z-40" 
+                        onClick={() => setShowExportMenu(false)}
+                      />
+                      {/* Dropdown menu */}
+                      <div className="absolute right-0 mt-2 w-48 rounded-xl bg-demon-bg-secondary border border-demon-primary/20 shadow-lg z-50 overflow-hidden">
+                        <button
+                          onClick={() => exportData("csv")}
+                          className="w-full px-4 py-3 text-left text-sm text-demon-text hover:bg-demon-primary/10 transition-colors flex items-center gap-3"
+                        >
+                          <Table className="w-4 h-4 text-demon-success" />
+                          <div>
+                            <div className="font-medium">Export CSV</div>
+                            <div className="text-xs text-demon-text-muted">Excel compatible</div>
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => exportData("json")}
+                          className="w-full px-4 py-3 text-left text-sm text-demon-text hover:bg-demon-primary/10 transition-colors flex items-center gap-3 border-t border-demon-primary/10"
+                        >
+                          <Database className="w-4 h-4 text-demon-accent" />
+                          <div>
+                            <div className="font-medium">Export JSON</div>
+                            <div className="text-xs text-demon-text-muted">Structured data</div>
+                          </div>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </motion.div>
 
