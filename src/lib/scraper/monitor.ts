@@ -147,36 +147,86 @@ export async function autoSaveRunData(
       return 0;
     }
 
-    // Map to database schema
-    const insertData = allItems.map((item) => ({
-      run_id: dbRunId,
-      source_url: item.source_url as string || "",
-      processor: item.processor as string || "",
-      processed_at: item.processed_at as string || new Date().toISOString(),
-      telegram_id: String(item.id || ""),
-      first_name: item.first_name as string || null,
-      last_name: item.last_name as string || null,
-      usernames: Array.isArray(item.usernames) ? item.usernames : [],
-      phone: item.phone as string || null,
-      type: item.type as string || "user",
-      is_deleted: Boolean(item.is_deleted),
-      is_verified: Boolean(item.is_verified),
-      is_premium: Boolean(item.is_premium),
-      is_scam: Boolean(item.is_scam),
-      is_fake: Boolean(item.is_fake),
-      is_restricted: Boolean(item.is_restricted),
-      lang_code: item.lang_code as string || null,
-      last_seen: item.last_seen as string || null,
-      stories_hidden: Boolean(item.stories_hidden),
-      premium_contact: Boolean(item.premium_contact),
-    }));
+    // Log first item to debug structure
+    logger.info(`Sample item structure: ${JSON.stringify(allItems[0], null, 2)}`);
+
+    // Get the source_url from the run's input config in database
+    const { data: runData } = await supabase
+      .from("scraper_runs")
+      .select("input_config")
+      .eq("id", dbRunId)
+      .single();
+    
+    const inputConfig = runData?.input_config as Record<string, unknown> || {};
+    const defaultSourceUrl = (inputConfig.Target_Group || inputConfig.targetGroup || "unknown_group") as string;
+
+    // Map to database schema - handle bhansalisoft scraper format:
+    // { user_id, user_name, access_hash, first_name, last_name }
+    const insertData = allItems.map((item) => {
+      // Get telegram_id - bhansalisoft uses "user_id"
+      const telegramId = String(
+        item.user_id || item.telegram_id || item.id || item.userId || ""
+      );
+      
+      // Get source_url from item or use default from input config
+      const sourceUrl = (
+        item.source_url || 
+        item.group_url || 
+        item.channel_url || 
+        item.group || 
+        defaultSourceUrl
+      ) as string;
+
+      // Get username - bhansalisoft uses "user_name" (singular)
+      let usernames: string[] = [];
+      if (item.user_name) {
+        usernames = [item.user_name as string];
+      } else if (Array.isArray(item.usernames)) {
+        usernames = item.usernames;
+      } else if (item.username) {
+        usernames = [item.username as string];
+      }
+
+      return {
+        run_id: dbRunId,
+        source_url: sourceUrl,
+        processor: "bhansalisoft/telegram-group-member-scraper",
+        processed_at: new Date().toISOString(),
+        telegram_id: telegramId,
+        first_name: (item.first_name || item.firstName) as string || null,
+        last_name: (item.last_name || item.lastName) as string || null,
+        usernames: usernames,
+        phone: (item.phone) as string || null,
+        type: "user",
+        is_deleted: false,
+        is_verified: false,
+        is_premium: false,
+        is_scam: false,
+        is_fake: false,
+        is_restricted: false,
+        lang_code: null,
+        last_seen: null,
+        stories_hidden: false,
+        premium_contact: false,
+      };
+    });
+
+    // Filter out items with empty telegram_id
+    const validData = insertData.filter(item => item.telegram_id && item.telegram_id !== "" && item.telegram_id !== "0");
+    logger.info(`Valid items to insert: ${validData.length} of ${insertData.length}`);
+
+    if (validData.length === 0) {
+      logger.error("No valid items to insert - all items missing telegram_id");
+      return 0;
+    }
 
     // Insert in batches
     const BATCH_SIZE = 500;
     let savedCount = 0;
+    let lastError: unknown = null;
 
-    for (let i = 0; i < insertData.length; i += BATCH_SIZE) {
-      const batch = insertData.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < validData.length; i += BATCH_SIZE) {
+      const batch = validData.slice(i, i + BATCH_SIZE);
       const { error } = await supabase
         .from("telegram_members")
         .upsert(batch, {
@@ -187,8 +237,13 @@ export async function autoSaveRunData(
       if (!error) {
         savedCount += batch.length;
       } else {
-        logger.error(`Batch insert error at ${i}`, error);
+        lastError = error;
+        logger.error(`Batch insert error at ${i}: ${JSON.stringify(error)}`);
       }
+    }
+
+    if (savedCount === 0 && lastError) {
+      logger.error(`All batches failed. Last error: ${JSON.stringify(lastError)}`);
     }
 
     // Update run with final count
@@ -213,6 +268,7 @@ export async function syncRunData(runId: string): Promise<{
   success: boolean;
   itemsCount: number;
   dataSaved: number;
+  sampleData?: Record<string, unknown>;
   error?: string;
 }> {
   const supabase = getServerSupabase();
@@ -250,14 +306,34 @@ export async function syncRunData(runId: string): Promise<{
 
     // If run succeeded and has items, save the data to telegram_members
     let dataSaved = 0;
+    let sampleData: Record<string, unknown> | undefined;
+    
     if (apifyRun.status === "SUCCEEDED" && apifyRun.itemsCount > 0) {
+      // First, get a sample to return for debugging
+      const { items } = await getRunData(apifyRun.datasetId, 1, 0);
+      if (items.length > 0) {
+        sampleData = items[0] as unknown as Record<string, unknown>;
+      }
+      
       dataSaved = await autoSaveRunData(dbRun.id, apifyRun.datasetId);
+      
+      // If no data was saved, return the sample for debugging
+      if (dataSaved === 0) {
+        return {
+          success: false,
+          itemsCount: apifyRun.itemsCount,
+          dataSaved: 0,
+          sampleData,
+          error: "Data found but failed to save. Check logs for details.",
+        };
+      }
     }
 
     return {
       success: true,
       itemsCount: apifyRun.itemsCount,
       dataSaved,
+      sampleData,
     };
   } catch (error) {
     logger.error(`Failed to sync run ${runId}`, error);

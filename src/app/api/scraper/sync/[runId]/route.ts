@@ -27,26 +27,22 @@ export async function POST(
     
     const result = await syncRunData(runId);
 
-    if (!result.success) {
-      return NextResponse.json(
-        { success: false, error: result.error },
-        { status: 500 }
-      );
-    }
-
     logger.info(`Manual sync completed for run ${runId}: ${result.itemsCount} items, ${result.dataSaved} saved`);
 
+    // Always return details, even on partial success
     return NextResponse.json({
-      success: true,
+      success: result.success,
       data: {
         runId,
         itemsCount: result.itemsCount,
         dataSaved: result.dataSaved,
+        sampleData: result.sampleData,
         message: result.dataSaved > 0 
           ? `Synced ${result.itemsCount} items, saved ${result.dataSaved} to database`
-          : `Synced ${result.itemsCount} items (already saved or no data)`,
+          : result.error || `Found ${result.itemsCount} items but 0 saved - check data structure`,
       },
-    });
+      error: result.error,
+    }, { status: result.success ? 200 : 500 });
   } catch (error) {
     logger.error("Error in manual sync", error);
     return NextResponse.json(
