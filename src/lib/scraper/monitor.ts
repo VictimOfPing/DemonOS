@@ -376,7 +376,12 @@ export async function syncRunData(runId: string): Promise<{
       }
       
       // Determine scraper type from actor ID
-      const scraperType = dbRun.actor_id?.includes("telegram") ? "telegram" : "custom";
+      // Detect scraper type from actor_id or actor_name
+      const isTelegram = dbRun.actor_id?.toLowerCase().includes("telegram") || 
+                         dbRun.actor_name?.toLowerCase().includes("telegram") ||
+                         dbRun.actor_id === "hLFj6Ay1gfoDw4MLO" || // bhansalisoft telegram scraper
+                         dbRun.actor_id?.includes("bhansalisoft");
+      const scraperType = isTelegram ? "telegram" : "custom";
       const saveResult = await autoSaveRunData(dbRun.id, apifyRun.datasetId, scraperType);
       dataSaved = saveResult.savedCount;
       saveError = saveResult.error;
@@ -478,7 +483,11 @@ export async function monitorActiveRuns(options: {
 
         // Auto-save data on successful completion
         if (autoSaveOnComplete && result.apifyStatus === "SUCCEEDED") {
-          const scraperType = run.actor_id?.includes("telegram") ? "telegram" : "custom";
+          // Detect scraper type from actor_id
+          const isTelegram = run.actor_id?.toLowerCase().includes("telegram") || 
+                             run.actor_id === "hLFj6Ay1gfoDw4MLO" || // bhansalisoft telegram scraper
+                             run.actor_id?.includes("bhansalisoft");
+          const scraperType = isTelegram ? "telegram" : "custom";
           const saveResult = await autoSaveRunData(run.id, result.datasetId, scraperType);
           if (saveResult.savedCount > 0) {
             result.dataSaved = true;
