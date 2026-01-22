@@ -8,6 +8,9 @@ import { abortRun } from "@/lib/apify/telegram-actor";
 import { getServerSupabase } from "@/lib/supabase/client";
 import { AbortScraperRequestSchema, type ApiResponse } from "@/types/scraper";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 interface AbortResponse {
   runId: string;
   status: string;

@@ -1,17 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { 
   LayoutDashboard, 
   Bot, 
-  Database, 
-  ChevronDown,
-  Plus,
-  Settings,
-  Power
+  Database
 } from "lucide-react";
 import { GlitchLogo } from "./GlitchLogo";
 import { NAV_ITEMS } from "@/lib/constants";
@@ -22,35 +18,53 @@ const iconMap = {
   Database,
 } as const;
 
-interface Site {
-  id: string;
-  name: string;
-  status: "online" | "offline" | "scraping";
-  dataCount: number;
+interface SidebarStats {
+  totalRecords: number;
+  activeRuns: number;
+  isLoading: boolean;
 }
-
-const mockSites: Site[] = [
-  { id: "1", name: "telegram.org", status: "online", dataCount: 45231 },
-  { id: "2", name: "facebook.com", status: "scraping", dataCount: 127843 },
-  { id: "3", name: "whatsapp.com", status: "online", dataCount: 89127 },
-  { id: "4", name: "instagram.com", status: "scraping", dataCount: 234567 },
-];
 
 /**
  * Sidebar navigation component
- * Clean, professional design with site status
+ * Clean, professional design
  */
 export function ModMenuSidebar() {
   const pathname = usePathname();
-  const [sitesExpanded, setSitesExpanded] = useState(true);
+  const [stats, setStats] = useState<SidebarStats>({
+    totalRecords: 0,
+    activeRuns: 0,
+    isLoading: true,
+  });
 
-  const getStatusColor = (status: Site["status"]) => {
-    switch (status) {
-      case "online": return "bg-demon-success";
-      case "scraping": return "bg-demon-warning";
-      case "offline": return "bg-demon-text-muted/50";
-    }
-  };
+  // Fetch real stats from API
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        // Fetch total records
+        const statsRes = await fetch("/api/scraper/stats?scraperType=telegram");
+        const statsData = await statsRes.json();
+        
+        // Fetch active runs
+        const runsRes = await fetch("/api/scraper/runs?status=running&limit=100");
+        const runsData = await runsRes.json();
+
+        setStats({
+          totalRecords: statsData.success ? statsData.data.totals.totalRecords : 0,
+          activeRuns: runsData.success ? runsData.data.runs.length : 0,
+          isLoading: false,
+        });
+      } catch (error) {
+        console.error("Failed to fetch sidebar stats:", error);
+        setStats(prev => ({ ...prev, isLoading: false }));
+      }
+    };
+
+    fetchStats();
+    
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchStats, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const getHref = (id: string) => {
     switch (id) {
@@ -120,109 +134,33 @@ export function ModMenuSidebar() {
             );
           })}
 
-          {/* Divider */}
-          <div className="my-4 h-px bg-demon-primary/10" />
-
-          {/* Sites section */}
-          <div>
-            <motion.button
-              className="w-full flex items-center gap-2 px-4 py-2 text-xs font-medium 
-                         text-demon-text-muted uppercase tracking-wider
-                         hover:text-demon-text transition-colors"
-              onClick={() => setSitesExpanded(!sitesExpanded)}
-            >
-              <motion.div
-                animate={{ rotate: sitesExpanded ? 180 : 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                <ChevronDown className="w-4 h-4" />
-              </motion.div>
-              <span>Configured Sites</span>
-              <span className="ml-auto text-demon-accent font-mono">{mockSites.length}</span>
-            </motion.button>
-
-            <AnimatePresence>
-              {sitesExpanded && (
-                <motion.div
-                  className="space-y-1 mt-2"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  {mockSites.map((site, index) => (
-                    <motion.div
-                      key={site.id}
-                      className="flex items-center gap-3 px-4 py-2.5 rounded-lg
-                                 hover:bg-demon-primary/5 cursor-pointer group transition-colors"
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                    >
-                      <div className="relative">
-                        <div className={`w-2 h-2 rounded-full ${getStatusColor(site.status)}`} />
-                        {site.status === "scraping" && (
-                          <div className="absolute inset-0 w-2 h-2 rounded-full bg-demon-warning animate-ping opacity-75" />
-                        )}
-                      </div>
-
-                      <span className="flex-1 text-sm text-demon-text-muted group-hover:text-demon-text truncate transition-colors">
-                        {site.name}
-                      </span>
-
-                      <span className="text-[10px] font-mono text-demon-primary/70 group-hover:text-demon-primary transition-colors">
-                        {site.dataCount.toLocaleString()}
-                      </span>
-                    </motion.div>
-                  ))}
-
-                  <motion.button
-                    className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg
-                               text-demon-text-muted hover:text-demon-accent
-                               hover:bg-demon-primary/5 transition-colors"
-                    whileHover={{ x: 4 }}
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span className="text-sm">Add new site</span>
-                  </motion.button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
         </nav>
 
-        {/* Bottom section */}
-        <div className="p-4 border-t border-demon-primary/10 space-y-4">
-          {/* Quick stats */}
+        {/* Bottom section - Quick stats */}
+        <div className="p-4 border-t border-demon-primary/10">
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-demon-bg/50 rounded-xl p-3 border border-demon-primary/10">
               <div className="text-[10px] text-demon-text-muted uppercase mb-1">Total Data</div>
               <div className="text-lg font-semibold text-demon-text font-mono">
-                {mockSites.reduce((acc, s) => acc + s.dataCount, 0).toLocaleString()}
+                {stats.isLoading ? (
+                  <span className="animate-pulse">...</span>
+                ) : (
+                  stats.totalRecords.toLocaleString()
+                )}
               </div>
             </div>
             <div className="bg-demon-bg/50 rounded-xl p-3 border border-demon-primary/10">
               <div className="text-[10px] text-demon-text-muted uppercase mb-1">Active</div>
-              <div className="text-lg font-semibold text-demon-success font-mono">
-                {mockSites.filter(s => s.status === "scraping").length}
+              <div className="text-lg font-semibold font-mono">
+                {stats.isLoading ? (
+                  <span className="animate-pulse text-demon-text-muted">...</span>
+                ) : (
+                  <span className={stats.activeRuns > 0 ? "text-demon-success" : "text-demon-text-muted"}>
+                    {stats.activeRuns}
+                  </span>
+                )}
               </div>
             </div>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex gap-2">
-            <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 
-                               rounded-xl bg-demon-bg/50 border border-demon-primary/10
-                               text-demon-text-muted hover:text-demon-text
-                               hover:bg-demon-primary/10 transition-colors">
-              <Settings className="w-4 h-4" />
-              <span className="text-xs font-medium">Settings</span>
-            </button>
-            <button className="flex items-center justify-center p-2.5 rounded-xl
-                               bg-demon-danger/10 border border-demon-danger/20
-                               text-demon-danger hover:bg-demon-danger/20 transition-colors">
-              <Power className="w-4 h-4" />
-            </button>
           </div>
         </div>
       </div>

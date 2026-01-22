@@ -11,6 +11,9 @@ import { getRecentLogs, logToDatabase } from "@/lib/supabase/logger";
 import type { LogLevel } from "@/lib/supabase/types";
 import type { ApiResponse } from "@/types/scraper";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 interface LogEntry {
   id: string;
   level: LogLevel;

@@ -8,10 +8,16 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getRunData, getRunStatus } from "@/lib/apify/telegram-actor";
+import { getFacebookRunData, getFacebookRunDataRaw } from "@/lib/apify/facebook-actor";
+import { getInstagramRunDataRaw } from "@/lib/apify/instagram-actor";
 import { getServerSupabase } from "@/lib/supabase/client";
 import { createLogger } from "@/lib/supabase/logger";
+import { ACTOR_IDS } from "@/lib/apify/client";
 import type { ApiResponse } from "@/types/scraper";
-import type { ScrapedDataRow, ScrapedDataRecord, rowToRecord, ScraperType } from "@/types/scraped-data";
+import type { ScrapedDataRow, ScrapedDataRecord, ScraperType } from "@/types/scraped-data";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const logger = createLogger("api/scraper/data");
 
@@ -20,6 +26,132 @@ interface DataResponse {
   total: number;
   hasMore: boolean;
   source: "apify" | "database";
+}
+
+/**
+ * Determine scraper type from actor ID
+ */
+function getScraperTypeFromActorId(actorId: string): ScraperType {
+  if (actorId === ACTOR_IDS.TELEGRAM_GROUP_MEMBER) {
+    return "telegram";
+  }
+  if (actorId === ACTOR_IDS.FACEBOOK_GROUP_MEMBER) {
+    return "facebook";
+  }
+  if (actorId === ACTOR_IDS.INSTAGRAM_FOLLOWERS) {
+    return "instagram";
+  }
+  return "custom";
+}
+
+/**
+ * Transform Facebook raw item to ScrapedDataRecord
+ */
+function transformFacebookItem(
+  item: Record<string, unknown>,
+  index: number,
+  runId: string | null
+): ScrapedDataRecord {
+  const member = item.member as Record<string, unknown> | undefined;
+  const groupInfo = member?.groupInfo as Record<string, unknown> | undefined;
+
+  return {
+    id: `apify-fb-${index}`,
+    runId: runId,
+    createdAt: (item.scrapedAt as string) || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    scraperType: "facebook" as ScraperType,
+    scraperActor: ACTOR_IDS.FACEBOOK_GROUP_MEMBER,
+    sourceIdentifier: (item.groupUrl as string) || "unknown",
+    sourceName: null,
+    entityId: String(member?.id || index),
+    entityType: "member",
+    entityName: (member?.name as string) || null,
+    data: item,
+    username: null, // Facebook doesn't expose usernames in this API
+    displayName: (member?.name as string) || null,
+    profileUrl: (member?.profileUrl as string) || null,
+    isVerified: Boolean(member?.isVerified),
+    isPremium: false, // Facebook doesn't have premium
+    isBot: false,
+    isSuspicious: false,
+    isActive: true,
+  };
+}
+
+/**
+ * Transform Telegram raw item to ScrapedDataRecord
+ */
+function transformTelegramItem(
+  item: Record<string, unknown>,
+  index: number,
+  runId: string | null
+): ScrapedDataRecord {
+  return {
+    id: `apify-tg-${index}`,
+    runId: runId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    scraperType: "telegram" as ScraperType,
+    scraperActor: ACTOR_IDS.TELEGRAM_GROUP_MEMBER,
+    sourceIdentifier: (item.source_url || item.group || "unknown") as string,
+    sourceName: null,
+    entityId: String(item.user_id || item.id || index),
+    entityType: "member",
+    entityName: [item.first_name, item.last_name].filter(Boolean).join(" ") || null,
+    data: item,
+    username: (item.user_name || item.username) as string || null,
+    displayName: (item.first_name) as string || null,
+    profileUrl: null,
+    isVerified: Boolean(item.is_verified),
+    isPremium: Boolean(item.is_premium),
+    isBot: item.type === "bot",
+    isSuspicious: Boolean(item.is_scam || item.is_fake),
+    isActive: !Boolean(item.is_deleted),
+  };
+}
+
+/**
+ * Transform Instagram raw item to ScrapedDataRecord
+ */
+function transformInstagramItem(
+  item: Record<string, unknown>,
+  index: number,
+  runId: string | null,
+  sourceUsername?: string
+): ScrapedDataRecord {
+  // Check if this is enriched data
+  const isEnriched = "biography" in item || "edge_followed_by" in item;
+  const followerCount = (item.edge_followed_by as { count: number })?.count;
+  const followingCount = (item.edge_follow as { count: number })?.count;
+
+  return {
+    id: `apify-ig-${index}`,
+    runId: runId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    scraperType: "instagram" as ScraperType,
+    scraperActor: ACTOR_IDS.INSTAGRAM_FOLLOWERS,
+    sourceIdentifier: sourceUsername || "unknown",
+    sourceName: null,
+    entityId: String(item.id || index),
+    entityType: "member",
+    entityName: (item.full_name as string) || null,
+    data: {
+      ...item,
+      _enriched: isEnriched,
+      _followerCount: followerCount,
+      _followingCount: followingCount,
+    },
+    username: (item.username as string) || null,
+    displayName: (item.full_name as string) || null,
+    profileUrl: item.username ? `https://instagram.com/${item.username}` : null,
+    isVerified: Boolean(item.is_verified),
+    isPremium: false, // Instagram doesn't have premium in this context
+    isBot: false,
+    isSuspicious: false,
+    isActive: !Boolean(item.is_private), // Use private status as proxy for active
+  };
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse<ApiResponse<DataResponse>>> {
@@ -81,7 +213,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         sourceIdentifier: row.source_identifier,
         sourceName: row.source_name,
         entityId: row.entity_id,
-        entityType: row.entity_type as any,
+        entityType: row.entity_type as "member",
         entityName: row.entity_name,
         data: row.data,
         username: row.username,
@@ -105,13 +237,15 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       });
     }
 
-    // Otherwise, fetch from Apify and return raw format
+    // Otherwise, fetch from Apify and return transformed format
     let targetDatasetId = datasetId;
+    let detectedScraperType: ScraperType = (scraperType as ScraperType) || "telegram";
 
     // If runId is provided but not datasetId, get datasetId from run info
     if (runId && !targetDatasetId) {
       const runInfo = await getRunStatus(runId);
       targetDatasetId = runInfo.datasetId;
+      detectedScraperType = getScraperTypeFromActorId(runInfo.actorId);
     }
 
     if (!targetDatasetId) {
@@ -124,32 +258,38 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       );
     }
 
-    // Fetch data from Apify dataset
-    const { items: rawItems, total, hasMore } = await getRunData(targetDatasetId, safeLimit, safeOffset);
+    // Fetch data from Apify dataset based on scraper type
+    let rawItems: Record<string, unknown>[];
+    let total: number;
+    let hasMore: boolean;
 
-    // Convert raw Apify items to ScrapedDataRecord format
-    const items: ScrapedDataRecord[] = (rawItems as unknown as Record<string, unknown>[]).map((item, index) => ({
-      id: `apify-${index}`,
-      runId: runId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      scraperType: "telegram" as ScraperType,
-      scraperActor: "apify",
-      sourceIdentifier: (item.source_url || item.group || "unknown") as string,
-      sourceName: null,
-      entityId: String(item.user_id || item.id || index),
-      entityType: "member" as any,
-      entityName: [item.first_name, item.last_name].filter(Boolean).join(" ") || null,
-      data: item,
-      username: (item.user_name || item.username) as string || null,
-      displayName: (item.first_name) as string || null,
-      profileUrl: null,
-      isVerified: Boolean(item.is_verified),
-      isPremium: Boolean(item.is_premium),
-      isBot: item.type === "bot",
-      isSuspicious: Boolean(item.is_scam || item.is_fake),
-      isActive: !Boolean(item.is_deleted),
-    }));
+    if (detectedScraperType === "facebook") {
+      const result = await getFacebookRunDataRaw(targetDatasetId, safeLimit, safeOffset);
+      rawItems = result.items;
+      total = result.total;
+      hasMore = result.hasMore;
+    } else if (detectedScraperType === "instagram") {
+      const result = await getInstagramRunDataRaw(targetDatasetId, safeLimit, safeOffset);
+      rawItems = result.items;
+      total = result.total;
+      hasMore = result.hasMore;
+    } else {
+      const result = await getRunData(targetDatasetId, safeLimit, safeOffset);
+      rawItems = result.items as unknown as Record<string, unknown>[];
+      total = result.total;
+      hasMore = result.hasMore;
+    }
+
+    // Transform items based on scraper type
+    const items: ScrapedDataRecord[] = rawItems.map((item, index) => {
+      if (detectedScraperType === "facebook") {
+        return transformFacebookItem(item, index, runId);
+      }
+      if (detectedScraperType === "instagram") {
+        return transformInstagramItem(item, index, runId);
+      }
+      return transformTelegramItem(item, index, runId);
+    });
 
     return NextResponse.json({
       success: true,
@@ -179,7 +319,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
 export async function POST(request: NextRequest): Promise<NextResponse<ApiResponse<{ saved: number }>>> {
   try {
     const body = await request.json();
-    const { runId, datasetId, scraperType = "telegram" } = body;
+    const { runId, datasetId } = body;
 
     if (!runId && !datasetId) {
       return NextResponse.json(
@@ -197,9 +337,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
 
     const supabase = getServerSupabase();
 
+    // Get run info to determine scraper type
+    let actorId = "unknown";
+    let inputConfig: Record<string, unknown> = {};
+
     if (runId) {
       const runInfo = await getRunStatus(runId);
       targetDatasetId = runInfo.datasetId;
+      actorId = runInfo.actorId;
 
       // Get database run ID and actor_id
       const { data: dbRun } = await supabase
@@ -209,7 +354,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
         .single();
 
       dbRunId = dbRun?.id || null;
+      if (dbRun?.actor_id) actorId = dbRun.actor_id;
+      if (dbRun?.input_config) inputConfig = dbRun.input_config as Record<string, unknown>;
     }
+
+    const scraperType = getScraperTypeFromActorId(actorId);
 
     // Fetch all data from Apify (paginated)
     const allItems: Record<string, unknown>[] = [];
@@ -218,9 +367,22 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
     let hasMore = true;
 
     while (hasMore) {
-      const { items, hasMore: more } = await getRunData(targetDatasetId, batchSize, offset);
-      allItems.push(...(items as unknown as Record<string, unknown>[]));
-      hasMore = more;
+      let result: { items: Record<string, unknown>[]; hasMore: boolean };
+      
+      if (scraperType === "facebook") {
+        result = await getFacebookRunDataRaw(targetDatasetId, batchSize, offset);
+      } else if (scraperType === "instagram") {
+        result = await getInstagramRunDataRaw(targetDatasetId, batchSize, offset);
+      } else {
+        const tgResult = await getRunData(targetDatasetId, batchSize, offset);
+        result = {
+          items: tgResult.items as unknown as Record<string, unknown>[],
+          hasMore: tgResult.hasMore,
+        };
+      }
+      
+      allItems.push(...result.items);
+      hasMore = result.hasMore;
       offset += batchSize;
 
       // Safety limit
@@ -230,55 +392,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
       }
     }
 
-    // Get source info
-    const { data: runData } = await supabase
-      .from("scraper_runs")
-      .select("input_config, actor_id")
-      .eq("id", dbRunId)
-      .single();
-    
-    const inputConfig = runData?.input_config as Record<string, unknown> || {};
-    const actorId = runData?.actor_id || "unknown";
-    const sourceIdentifier = (
-      inputConfig.Target_Group || 
-      inputConfig.targetGroup || 
-      "unknown_source"
-    ) as string;
-
-    // Map to generic scraped_data format
+    // Map to generic scraped_data format based on scraper type
     const insertData = allItems.map((item) => {
-      const entityId = String(
-        item.user_id || item.telegram_id || item.id || ""
-      );
-      
-      const username = (
-        item.user_name || 
-        item.username || 
-        (Array.isArray(item.usernames) ? item.usernames[0] : null)
-      ) as string || null;
-
-      const firstName = (item.first_name || item.firstName) as string || "";
-      const lastName = (item.last_name || item.lastName) as string || "";
-      const displayName = [firstName, lastName].filter(Boolean).join(" ") || null;
-
-      return {
-        scraper_type: scraperType,
-        scraper_actor: actorId,
-        source_identifier: sourceIdentifier,
-        source_name: sourceIdentifier,
-        entity_id: entityId,
-        entity_type: "member",
-        entity_name: displayName,
-        username: username,
-        display_name: firstName || null,
-        profile_url: username ? `https://t.me/${username}` : null,
-        is_verified: Boolean(item.is_verified || item.verified),
-        is_premium: Boolean(item.is_premium || item.premium),
-        is_bot: item.type === "bot" || Boolean(item.is_bot),
-        is_suspicious: Boolean(item.is_scam || item.is_fake),
-        is_active: !Boolean(item.is_deleted || item.deleted),
-        data: item,
-      };
+      if (scraperType === "facebook") {
+        return transformFacebookItemForInsert(item, actorId, inputConfig);
+      }
+      if (scraperType === "instagram") {
+        return transformInstagramItemForInsert(item, actorId, inputConfig);
+      }
+      return transformTelegramItemForInsert(item, actorId, inputConfig);
     });
 
     // Filter out items with empty entity_id
@@ -312,7 +434,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
         .eq("id", dbRunId);
     }
 
-    logger.info(`Saved ${savedCount} items for run ${runId || datasetId}`);
+    logger.info(`Saved ${savedCount} ${scraperType} items for run ${runId || datasetId}`);
 
     return NextResponse.json({
       success: true,
@@ -330,4 +452,139 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
       { status: 500 }
     );
   }
+}
+
+/**
+ * Transform Facebook item for database insert
+ */
+function transformFacebookItemForInsert(
+  item: Record<string, unknown>,
+  actorId: string,
+  inputConfig: Record<string, unknown>
+) {
+  const member = item.member as Record<string, unknown> | undefined;
+  const groupInfo = member?.groupInfo as Record<string, unknown> | undefined;
+  const groupUrl = (item.groupUrl as string) || "";
+  
+  // Extract group identifier from URL for source_identifier
+  const sourceIdentifier = groupUrl || 
+    (Array.isArray(inputConfig.groupUrls) ? inputConfig.groupUrls[0] : "unknown_facebook_group");
+
+  const entityId = String(member?.id || "");
+  const displayName = (member?.name as string) || null;
+  const profileUrl = (member?.profileUrl as string) || null;
+
+  return {
+    scraper_type: "facebook",
+    scraper_actor: actorId,
+    source_identifier: sourceIdentifier,
+    source_name: sourceIdentifier,
+    entity_id: entityId,
+    entity_type: "member",
+    entity_name: displayName,
+    username: null, // Facebook doesn't expose usernames
+    display_name: displayName,
+    profile_url: profileUrl,
+    is_verified: Boolean(member?.isVerified),
+    is_premium: false,
+    is_bot: false,
+    is_suspicious: false,
+    is_active: true,
+    data: item,
+  };
+}
+
+/**
+ * Transform Telegram item for database insert
+ */
+function transformTelegramItemForInsert(
+  item: Record<string, unknown>,
+  actorId: string,
+  inputConfig: Record<string, unknown>
+) {
+  const entityId = String(
+    item.user_id || item.telegram_id || item.id || ""
+  );
+  
+  const username = (
+    item.user_name || 
+    item.username || 
+    (Array.isArray(item.usernames) ? item.usernames[0] : null)
+  ) as string || null;
+
+  const firstName = (item.first_name || item.firstName) as string || "";
+  const lastName = (item.last_name || item.lastName) as string || "";
+  const displayName = [firstName, lastName].filter(Boolean).join(" ") || null;
+
+  const sourceIdentifier = (
+    inputConfig.Target_Group || 
+    inputConfig.targetGroup || 
+    item.source_url ||
+    "unknown_telegram_group"
+  ) as string;
+
+  return {
+    scraper_type: "telegram",
+    scraper_actor: actorId,
+    source_identifier: sourceIdentifier,
+    source_name: sourceIdentifier,
+    entity_id: entityId,
+    entity_type: "member",
+    entity_name: displayName,
+    username: username,
+    display_name: firstName || null,
+    profile_url: username ? `https://t.me/${username}` : null,
+    is_verified: Boolean(item.is_verified || item.verified),
+    is_premium: Boolean(item.is_premium || item.premium),
+    is_bot: item.type === "bot" || Boolean(item.is_bot),
+    is_suspicious: Boolean(item.is_scam || item.is_fake),
+    is_active: !Boolean(item.is_deleted || item.deleted),
+    data: item,
+  };
+}
+
+/**
+ * Transform Instagram item for database insert
+ */
+function transformInstagramItemForInsert(
+  item: Record<string, unknown>,
+  actorId: string,
+  inputConfig: Record<string, unknown>
+) {
+  const entityId = String(item.id || "");
+  const username = (item.username as string) || null;
+  const fullName = (item.full_name as string) || null;
+
+  // Get source identifier from input config (first username being scraped)
+  const usernames = inputConfig.usernames as string[] | undefined;
+  const sourceIdentifier = usernames?.[0] || "unknown_instagram_user";
+
+  // Check if this is enriched data
+  const isEnriched = "biography" in item || "edge_followed_by" in item;
+  const followerCount = (item.edge_followed_by as { count: number })?.count;
+  const followingCount = (item.edge_follow as { count: number })?.count;
+
+  return {
+    scraper_type: "instagram",
+    scraper_actor: actorId,
+    source_identifier: sourceIdentifier,
+    source_name: sourceIdentifier,
+    entity_id: entityId,
+    entity_type: "member",
+    entity_name: fullName,
+    username: username,
+    display_name: fullName,
+    profile_url: username ? `https://instagram.com/${username}` : null,
+    is_verified: Boolean(item.is_verified),
+    is_premium: false, // Instagram doesn't have premium in this context
+    is_bot: false,
+    is_suspicious: false,
+    is_active: !Boolean(item.is_private),
+    data: {
+      ...item,
+      _enriched: isEnriched,
+      _followerCount: followerCount,
+      _followingCount: followingCount,
+    },
+  };
 }

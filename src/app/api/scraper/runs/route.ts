@@ -8,6 +8,9 @@ import { getServerSupabase } from "@/lib/supabase/client";
 import type { ApiResponse } from "@/types/scraper";
 import type { ScraperRunStatus } from "@/lib/supabase/types";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 interface ScraperRunRow {
   id: string;
   run_id: string;

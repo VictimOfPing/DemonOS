@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { 
   Globe, 
@@ -9,8 +9,6 @@ import {
   Zap, 
   TrendingUp,
   Server,
-  Cpu,
-  HardDrive,
   Clock,
   CheckCircle
 } from "lucide-react";
@@ -29,113 +27,107 @@ interface ActivityItem {
   details?: string;
 }
 
-const initialActivity: ActivityItem[] = [
-  {
-    id: "1",
-    type: "success",
-    message: "Batch scrape completed successfully",
-    site: "telegram.org",
-    timestamp: new Date(Date.now() - 60000),
-    details: "45,231 users extracted",
-  },
-  {
-    id: "2",
-    type: "scrape",
-    message: "Scraping in progress...",
-    site: "facebook.com",
-    timestamp: new Date(Date.now() - 30000),
-    details: "Page 147 of 500",
-  },
-  {
-    id: "3",
-    type: "database",
-    message: "Data synced to Supabase",
-    timestamp: new Date(Date.now() - 120000),
-    details: "89,127 records updated",
-  },
-  {
-    id: "4",
-    type: "scrape",
-    message: "Extracting user profiles...",
-    site: "instagram.com",
-    timestamp: new Date(Date.now() - 180000),
-    details: "234,567 profiles processed",
-  },
-];
+interface SourceStats {
+  sourceIdentifier: string;
+  sourceName: string | null;
+  recordCount: number;
+  lastScraped: string;
+}
+
+interface DashboardStats {
+  totalSources: number;
+  totalRecords: number;
+  activeRuns: number;
+  successRate: number;
+  sources: SourceStats[];
+  isLoading: boolean;
+}
 
 const terminalLines = [
   createTerminalLine("info", "DemonOS v1.0 initialized"),
   createTerminalLine("success", "Connected to Apify API"),
   createTerminalLine("success", "Supabase connection established"),
-  createTerminalLine("info", "Loading scraper configurations..."),
-  createTerminalLine("output", "4 sites configured"),
   createTerminalLine("info", "System ready"),
 ];
 
 /**
  * Main Dashboard Component
- * Displays system stats, activity feed, and system overview
+ * Displays real system stats, activity feed, and system overview
  */
 export function Dashboard() {
-  const [stats, setStats] = useState({
-    sitesActive: 4,
-    totalData: 496768,
-    requestsPerMin: 156,
-    successRate: 99.2,
+  const [stats, setStats] = useState<DashboardStats>({
+    totalSources: 0,
+    totalRecords: 0,
+    activeRuns: 0,
+    successRate: 0,
+    sources: [],
+    isLoading: true,
   });
 
-  const [activity, setActivity] = useState<ActivityItem[]>(initialActivity);
-  const [scrapingProgress, setScrapingProgress] = useState({
-    telegram: 100,
-    facebook: 78,
-    whatsapp: 92,
-    instagram: 45,
-  });
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
 
-  // Simulate live updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setStats((prev) => ({
-        ...prev,
-        totalData: prev.totalData + Math.floor(Math.random() * 10),
-        requestsPerMin: Math.floor(Math.random() * 20) + 35,
-      }));
+  // Fetch real stats from API
+  const fetchStats = useCallback(async () => {
+    try {
+      // Fetch stats and runs in parallel
+      const [statsRes, runsRes] = await Promise.all([
+        fetch("/api/scraper/stats?scraperType=telegram"),
+        fetch("/api/scraper/runs?limit=50"),
+      ]);
 
-      setScrapingProgress((prev) => ({
-        ...prev,
-        facebook: Math.min(100, prev.facebook + Math.random() * 2),
-        instagram: Math.min(100, prev.instagram + Math.random() * 3),
-      }));
-    }, 2000);
+      const statsData = await statsRes.json();
+      const runsData = await runsRes.json();
 
-    return () => clearInterval(interval);
-  }, []);
+      if (statsData.success) {
+        const runs = runsData.success ? runsData.data.runs : [];
+        const activeRuns = runs.filter((r: { status: string }) => r.status === "running").length;
+        const succeededRuns = runs.filter((r: { status: string }) => r.status === "succeeded").length;
+        const totalRuns = runs.length;
+        const successRate = totalRuns > 0 ? (succeededRuns / totalRuns) * 100 : 100;
 
-  // Add new activity periodically
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const types = ["scrape", "success", "info", "database"] as const;
-      const messages = [
-        "Processing batch request",
-        "Data validation complete",
-        "Cache refreshed",
-        "API quota check passed",
-      ];
+        setStats({
+          totalSources: statsData.data.totals.totalSources,
+          totalRecords: statsData.data.totals.totalRecords,
+          activeRuns,
+          successRate: Math.round(successRate * 10) / 10,
+          sources: statsData.data.sources,
+          isLoading: false,
+        });
 
-      if (Math.random() > 0.5) {
-        const newActivity: ActivityItem = {
-          id: Date.now().toString(),
-          type: types[Math.floor(Math.random() * types.length)],
-          message: messages[Math.floor(Math.random() * messages.length)],
-          timestamp: new Date(),
-        };
+        // Generate activity from recent runs
+        const recentActivity: ActivityItem[] = runs.slice(0, 10).map((run: {
+          run_id: string;
+          status: string;
+          started_at: string;
+          items_count: number;
+          actor_name: string;
+        }) => ({
+          id: run.run_id,
+          type: run.status === "running" ? "scrape" as const : 
+                run.status === "succeeded" ? "success" as const : 
+                run.status === "failed" ? "error" as const : "info" as const,
+          message: run.status === "running" ? "Scraping in progress..." :
+                   run.status === "succeeded" ? "Scrape completed" :
+                   run.status === "failed" ? "Scrape failed" : "Run pending",
+          site: "telegram",
+          timestamp: new Date(run.started_at),
+          details: run.items_count > 0 ? `${run.items_count.toLocaleString()} items` : undefined,
+        }));
 
-        setActivity((prev) => [newActivity, ...prev.slice(0, 9)]);
+        setActivity(recentActivity);
       }
-    }, 5000);
-
-    return () => clearInterval(interval);
+    } catch (error) {
+      console.error("Failed to fetch dashboard stats:", error);
+      setStats(prev => ({ ...prev, isLoading: false }));
+    }
   }, []);
+
+  // Initial fetch and refresh interval
+  useEffect(() => {
+    fetchStats();
+    const interval = setInterval(fetchStats, 15000);
+    return () => clearInterval(interval);
+  }, [fetchStats]);
 
   return (
     <div className="space-y-6">
@@ -165,28 +157,26 @@ export function Dashboard() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
-          title="Active Sites"
-          value={stats.sitesActive}
+          title="Total Sources"
+          value={stats.isLoading ? 0 : stats.totalSources}
           icon={Globe}
           variant="default"
-          trend={{ value: 12, positive: true }}
         />
         <StatsCard
           title="Total Records"
-          value={stats.totalData}
+          value={stats.isLoading ? 0 : stats.totalRecords}
           icon={Database}
           variant="success"
-          trend={{ value: 8, positive: true }}
         />
         <StatsCard
-          title="Requests/min"
-          value={stats.requestsPerMin}
+          title="Active Runs"
+          value={stats.isLoading ? 0 : stats.activeRuns}
           icon={Zap}
-          variant="warning"
+          variant={stats.activeRuns > 0 ? "warning" : "default"}
         />
         <StatsCard
           title="Success Rate"
-          value={stats.successRate}
+          value={stats.isLoading ? 0 : stats.successRate}
           icon={TrendingUp}
           variant="success"
           suffix="%"
@@ -197,43 +187,45 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Activity Feed & Progress */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Scraping Progress */}
+          {/* Data Sources */}
           <NeonCard
             variant="default"
             header={
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-demon-primary" />
                 <span className="text-sm font-medium">
-                  Active Scrapers
+                  Data Sources
+                </span>
+                <span className="ml-auto text-xs text-demon-text-muted font-mono">
+                  {stats.sources.length} sources
                 </span>
               </div>
             }
           >
             <div className="space-y-4">
-              <ProgressBar
-                value={scrapingProgress.telegram}
-                label="telegram.org"
-                variant="success"
-              />
-              <ProgressBar
-                value={scrapingProgress.facebook}
-                label="facebook.com"
-                variant="default"
-                striped
-                animated
-              />
-              <ProgressBar
-                value={scrapingProgress.whatsapp}
-                label="whatsapp.com"
-                variant="success"
-              />
-              <ProgressBar
-                value={scrapingProgress.instagram}
-                label="instagram.com"
-                variant="default"
-                striped
-                animated
-              />
+              {stats.isLoading ? (
+                <div className="text-sm text-demon-text-muted animate-pulse">
+                  Loading sources...
+                </div>
+              ) : stats.sources.length === 0 ? (
+                <div className="text-sm text-demon-text-muted">
+                  No data sources yet. Start scraping to see them here.
+                </div>
+              ) : (
+                stats.sources.slice(0, 5).map((source) => {
+                  const maxRecords = Math.max(...stats.sources.map(s => s.recordCount), 1);
+                  const percentage = (source.recordCount / maxRecords) * 100;
+                  return (
+                    <ProgressBar
+                      key={source.sourceIdentifier}
+                      value={percentage}
+                      label={source.sourceName || source.sourceIdentifier}
+                      variant="success"
+                      showValue={false}
+                    />
+                  );
+                })
+              )}
             </div>
           </NeonCard>
 
@@ -298,50 +290,36 @@ export function Dashboard() {
             </div>
           </NeonCard>
 
-          {/* System Resources */}
+          {/* Data Overview */}
           <NeonCard
             variant="default"
             header={
               <div className="flex items-center gap-2">
-                <Server className="w-4 h-4 text-demon-primary" />
+                <Database className="w-4 h-4 text-demon-primary" />
                 <span className="text-sm font-medium">
-                  System Resources
+                  Data Overview
                 </span>
               </div>
             }
           >
             <div className="space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Cpu className="w-4 h-4 text-demon-text-muted" />
-                    <span className="text-sm text-demon-text-muted">CPU Usage</span>
-                  </div>
-                  <span className="text-sm font-mono text-demon-accent">23%</span>
-                </div>
-                <ProgressBar value={23} showValue={false} size="sm" />
+              <div className="flex items-center justify-between p-3 rounded-lg bg-demon-bg/50">
+                <span className="text-sm text-demon-text-muted">Total Records</span>
+                <span className="text-sm font-mono text-demon-accent">
+                  {stats.isLoading ? "..." : stats.totalRecords.toLocaleString()}
+                </span>
               </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <HardDrive className="w-4 h-4 text-demon-text-muted" />
-                    <span className="text-sm text-demon-text-muted">Memory</span>
-                  </div>
-                  <span className="text-sm font-mono text-demon-accent">1.2 GB</span>
-                </div>
-                <ProgressBar value={45} showValue={false} size="sm" />
+              <div className="flex items-center justify-between p-3 rounded-lg bg-demon-bg/50">
+                <span className="text-sm text-demon-text-muted">Sources</span>
+                <span className="text-sm font-mono text-demon-accent">
+                  {stats.isLoading ? "..." : stats.totalSources}
+                </span>
               </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Database className="w-4 h-4 text-demon-text-muted" />
-                    <span className="text-sm text-demon-text-muted">Storage</span>
-                  </div>
-                  <span className="text-sm font-mono text-demon-accent">112 MB</span>
-                </div>
-                <ProgressBar value={22} showValue={false} size="sm" />
+              <div className="flex items-center justify-between p-3 rounded-lg bg-demon-bg/50">
+                <span className="text-sm text-demon-text-muted">Success Rate</span>
+                <span className="text-sm font-mono text-demon-success">
+                  {stats.isLoading ? "..." : `${stats.successRate}%`}
+                </span>
               </div>
             </div>
           </NeonCard>

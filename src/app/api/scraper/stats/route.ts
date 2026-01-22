@@ -8,6 +8,9 @@ import { getServerSupabase } from "@/lib/supabase/client";
 import { createLogger } from "@/lib/supabase/logger";
 import type { ScraperType } from "@/types/scraped-data";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 const logger = createLogger("api/scraper/stats");
 
 interface SourceStats {

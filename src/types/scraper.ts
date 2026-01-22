@@ -51,6 +51,10 @@ export interface ScraperConfig {
   settings: {
     /** Auth token for private groups (optional) */
     authToken?: string;
+    /** Max items to scrape (optional) */
+    maxItems?: number;
+    /** Profile enrichment (optional, Instagram-specific) */
+    profileEnriched?: boolean;
   };
 }
 
@@ -65,16 +69,67 @@ export const AVAILABLE_SCRAPERS: Omit<ScraperConfig, "status" | "progress" | "it
     enabled: true,
     settings: {},
   },
+  {
+    id: "facebook",
+    name: "Facebook Group Scraper",
+    description: "Extract members from Facebook groups including profile info, contribution scores, and membership details.",
+    platform: "facebook",
+    actorId: "easyapi/facebook-group-members-scraper",
+    enabled: true,
+    settings: {},
+  },
+  {
+    id: "instagram",
+    name: "Instagram Followers Scraper",
+    description: "Scrape Instagram followers with optional profile enrichment. No cookies or login required. Can scrape 100k+ profiles.",
+    platform: "instagram",
+    actorId: "thenetaji/instagram-followers-scraper",
+    enabled: true,
+    settings: {
+      maxItems: 100,
+      profileEnriched: false,
+    },
+  },
 ];
 
 /** Request schemas for API validation */
 export const RunScraperRequestSchema = z.object({
   scraperId: z.string(),
-  /** Target group name or username (e.g., "groupname" or "@groupname" or "https://t.me/groupname") */
-  targetGroup: z.string().min(1, "Group name is required"),
-  /** Optional auth token for private groups */
+  /** Target group name or username for Telegram (e.g., "groupname" or "@groupname" or "https://t.me/groupname") */
+  targetGroup: z.string().optional(),
+  /** Optional auth token for private Telegram groups */
   authToken: z.string().optional(),
-});
+  /** Facebook group URLs to scrape (array) */
+  groupUrls: z.array(z.string()).optional(),
+  /** Maximum number of items to scrape (for Facebook and Instagram) */
+  maxItems: z.number().min(1).max(100000).optional(),
+  /** Instagram usernames to scrape followers from (array) */
+  instagramUsernames: z.array(z.string()).optional(),
+  /** Whether to enrich Instagram profiles with full data */
+  profileEnriched: z.boolean().optional(),
+  /** Type of Instagram scrape: followers or following */
+  instagramType: z.enum(["followers", "following"]).optional(),
+}).refine(
+  (data) => {
+    // Telegram requires targetGroup
+    if (data.scraperId === "telegram") {
+      return !!data.targetGroup && data.targetGroup.length > 0;
+    }
+    // Facebook requires groupUrls
+    if (data.scraperId === "facebook") {
+      return !!data.groupUrls && data.groupUrls.length > 0;
+    }
+    // Instagram requires instagramUsernames
+    if (data.scraperId === "instagram") {
+      return !!data.instagramUsernames && data.instagramUsernames.length > 0;
+    }
+    // For unknown scrapers, require at least one input
+    return !!data.targetGroup || (!!data.groupUrls && data.groupUrls.length > 0) || (!!data.instagramUsernames && data.instagramUsernames.length > 0);
+  },
+  {
+    message: "Required input not provided based on scraper type",
+  }
+);
 
 export type RunScraperRequest = z.infer<typeof RunScraperRequestSchema>;
 

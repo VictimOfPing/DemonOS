@@ -9,6 +9,9 @@ import { getServerSupabase } from "@/lib/supabase/client";
 import type { ApiResponse, ScraperStatusResponse } from "@/types/scraper";
 import type { ScraperRunStatus } from "@/lib/supabase/types";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 /** Map Apify status to database status */
 function mapApifyToDbStatus(apifyStatus: string): ScraperRunStatus {
   switch (apifyStatus) {

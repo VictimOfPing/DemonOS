@@ -12,6 +12,9 @@ import { getServerSupabase } from "@/lib/supabase/client";
 import { saveScraperRunLogs, getScraperRunLogs } from "@/lib/supabase/logger";
 import type { ApiResponse } from "@/types/scraper";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 interface LogsResponse {
   runId: string;
   logs: string;

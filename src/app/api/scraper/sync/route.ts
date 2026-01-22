@@ -7,6 +7,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { monitorActiveRuns, getRunsSummary, checkRunStatus } from "@/lib/scraper/monitor";
 import { createLogger } from "@/lib/supabase/logger";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 const logger = createLogger("api/scraper/sync");
 
 export interface SyncResponse {

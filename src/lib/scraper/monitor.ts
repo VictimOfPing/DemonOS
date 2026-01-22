@@ -11,6 +11,150 @@ import type { ScraperRunStatus } from "@/lib/supabase/types";
 
 const logger = createLogger("scraper-monitor");
 
+/** Extract source identifier from input config based on scraper type */
+function extractSourceIdentifier(inputConfig: Record<string, unknown>, scraperType: string): string {
+  switch (scraperType) {
+    case "telegram":
+      return String(
+        inputConfig.Target_Group || 
+        inputConfig.targetGroup || 
+        inputConfig.target_url ||
+        "unknown_telegram_group"
+      );
+    case "facebook":
+      return String(
+        inputConfig.groupUrl ||
+        inputConfig.group_url ||
+        inputConfig.groupId ||
+        "unknown_facebook_group"
+      );
+    case "instagram":
+      // Instagram uses array of usernames
+      const usernames = inputConfig.username as string[] | undefined;
+      return usernames?.[0] || String(inputConfig.username || "unknown_instagram_user");
+    default:
+      return String(
+        inputConfig.source ||
+        inputConfig.target ||
+        inputConfig.url ||
+        "unknown_source"
+      );
+  }
+}
+
+/** Map raw item to scraped_data format based on scraper type */
+function mapItemToScrapedData(
+  item: Record<string, unknown>,
+  scraperType: string,
+  actorId: string,
+  sourceIdentifier: string
+): Record<string, unknown> {
+  // Common fields extraction
+  let entityId = "";
+  let username: string | null = null;
+  let displayName: string | null = null;
+  let firstName: string | null = null;
+  let profileUrl: string | null = null;
+  let isVerified = false;
+  let isPremium = false;
+  let isBot = false;
+  
+  switch (scraperType) {
+    case "telegram":
+      entityId = String(item.user_id || item.telegram_id || item.id || "");
+      username = (item.user_name || item.username || (Array.isArray(item.usernames) ? item.usernames[0] : null)) as string || null;
+      firstName = (item.first_name || item.firstName || item.name) as string || null;
+      const lastName = (item.last_name || item.lastName) as string || "";
+      displayName = [firstName, lastName].filter(Boolean).join(" ") || null;
+      profileUrl = username ? `https://t.me/${username}` : null;
+      isVerified = Boolean(item.is_verified || item.verified);
+      isPremium = Boolean(item.is_premium || item.premium);
+      isBot = item.type === "bot" || Boolean(item.is_bot);
+      break;
+      
+    case "facebook":
+      entityId = String(item.profileId || item.userId || item.id || "");
+      username = (item.profileUrl?.toString().split("/").pop() || item.username) as string || null;
+      displayName = (item.name || item.fullName || item.full_name) as string || null;
+      firstName = displayName?.split(" ")[0] || null;
+      profileUrl = (item.profileUrl || (username ? `https://facebook.com/${username}` : null)) as string || null;
+      isVerified = Boolean(item.isVerified || item.verified);
+      break;
+      
+    case "instagram":
+      entityId = String(item.id || item.pk || item.user_id || "");
+      username = (item.username || item.user_name) as string || null;
+      displayName = (item.full_name || item.fullName || item.name) as string || null;
+      firstName = displayName?.split(" ")[0] || null;
+      profileUrl = username ? `https://instagram.com/${username}` : (item.profile_pic_url as string || null);
+      isVerified = Boolean(item.is_verified || item.verified);
+      isPremium = Boolean(item.is_blue_verified);
+      break;
+      
+    default:
+      entityId = String(item.id || item.user_id || item.entity_id || "");
+      username = (item.username || item.user_name) as string || null;
+      displayName = (item.name || item.full_name || item.display_name) as string || null;
+      firstName = displayName?.split(" ")[0] || null;
+  }
+  
+  return {
+    scraper_type: scraperType,
+    scraper_actor: actorId,
+    source_identifier: sourceIdentifier,
+    source_name: sourceIdentifier,
+    entity_id: entityId,
+    entity_type: "member",
+    entity_name: displayName,
+    username: username,
+    display_name: firstName,
+    profile_url: profileUrl,
+    is_verified: isVerified,
+    is_premium: isPremium,
+    is_bot: isBot,
+    is_suspicious: Boolean(item.is_scam || item.is_fake || item.scam || item.fake),
+    is_active: !Boolean(item.is_deleted || item.deleted),
+    // Store all original data in JSONB
+    data: item,
+  };
+}
+
+/** Detect scraper type from actor ID and name */
+function detectScraperType(actorId?: string, actorName?: string): string {
+  const id = actorId?.toLowerCase() || "";
+  const name = actorName?.toLowerCase() || "";
+  
+  // Telegram detection
+  if (
+    id.includes("telegram") ||
+    name.includes("telegram") ||
+    id === "hlfj6ay1gfodw4mlo" || // bhansalisoft telegram scraper
+    id.includes("bhansalisoft")
+  ) {
+    return "telegram";
+  }
+  
+  // Facebook detection
+  if (
+    id.includes("facebook") ||
+    name.includes("facebook") ||
+    id.includes("easyapi")
+  ) {
+    return "facebook";
+  }
+  
+  // Instagram detection
+  if (
+    id.includes("instagram") ||
+    name.includes("instagram") ||
+    id.includes("thenetaji")
+  ) {
+    return "instagram";
+  }
+  
+  return "custom";
+}
+
 /** Map Apify status to database status */
 function mapApifyToDbStatus(apifyStatus: ApifyRunStatus): ScraperRunStatus {
   switch (apifyStatus) {
@@ -181,52 +325,13 @@ export async function autoSaveRunData(
     
     const inputConfig = runData?.input_config as Record<string, unknown> || {};
     const actorId = runData?.actor_id || "unknown";
-    const sourceIdentifier = (
-      inputConfig.Target_Group || 
-      inputConfig.targetGroup || 
-      inputConfig.target_url ||
-      inputConfig.username ||
-      "unknown_source"
-    ) as string;
+    
+    // Extract source identifier based on scraper type
+    const sourceIdentifier = extractSourceIdentifier(inputConfig, scraperType);
 
-    // Map to generic scraped_data format
+    // Map to generic scraped_data format based on scraper type
     const insertData = allItems.map((item) => {
-      // Extract entity ID
-      const entityId = String(
-        item.user_id || item.telegram_id || item.id || item.userId || item.entity_id || ""
-      );
-      
-      // Get username
-      const username = (
-        item.user_name || 
-        item.username || 
-        (Array.isArray(item.usernames) ? item.usernames[0] : null)
-      ) as string || null;
-
-      // Get display name
-      const firstName = (item.first_name || item.firstName || item.name) as string || "";
-      const lastName = (item.last_name || item.lastName) as string || "";
-      const displayName = [firstName, lastName].filter(Boolean).join(" ") || null;
-
-      return {
-        scraper_type: scraperType,
-        scraper_actor: actorId,
-        source_identifier: sourceIdentifier,
-        source_name: sourceIdentifier,
-        entity_id: entityId,
-        entity_type: "member",
-        entity_name: displayName,
-        username: username,
-        display_name: firstName || null,
-        profile_url: username ? `https://t.me/${username}` : null,
-        is_verified: Boolean(item.is_verified || item.verified),
-        is_premium: Boolean(item.is_premium || item.premium),
-        is_bot: item.type === "bot" || Boolean(item.is_bot),
-        is_suspicious: Boolean(item.is_scam || item.is_fake || item.scam || item.fake),
-        is_active: !Boolean(item.is_deleted || item.deleted),
-        // Store all original data in JSONB
-        data: item,
-      };
+      return mapItemToScrapedData(item, scraperType, actorId, sourceIdentifier);
     });
 
     // Filter out items with empty/invalid entity_id
@@ -376,12 +481,7 @@ export async function syncRunData(runId: string): Promise<{
       }
       
       // Determine scraper type from actor ID
-      // Detect scraper type from actor_id or actor_name
-      const isTelegram = dbRun.actor_id?.toLowerCase().includes("telegram") || 
-                         dbRun.actor_name?.toLowerCase().includes("telegram") ||
-                         dbRun.actor_id === "hLFj6Ay1gfoDw4MLO" || // bhansalisoft telegram scraper
-                         dbRun.actor_id?.includes("bhansalisoft");
-      const scraperType = isTelegram ? "telegram" : "custom";
+      const scraperType = detectScraperType(dbRun.actor_id, dbRun.actor_name);
       const saveResult = await autoSaveRunData(dbRun.id, apifyRun.datasetId, scraperType);
       dataSaved = saveResult.savedCount;
       saveError = saveResult.error;
@@ -483,11 +583,7 @@ export async function monitorActiveRuns(options: {
 
         // Auto-save data on successful completion
         if (autoSaveOnComplete && result.apifyStatus === "SUCCEEDED") {
-          // Detect scraper type from actor_id
-          const isTelegram = run.actor_id?.toLowerCase().includes("telegram") || 
-                             run.actor_id === "hLFj6Ay1gfoDw4MLO" || // bhansalisoft telegram scraper
-                             run.actor_id?.includes("bhansalisoft");
-          const scraperType = isTelegram ? "telegram" : "custom";
+          const scraperType = detectScraperType(run.actor_id);
           const saveResult = await autoSaveRunData(run.id, result.datasetId, scraperType);
           if (saveResult.savedCount > 0) {
             result.dataSaved = true;

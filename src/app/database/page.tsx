@@ -21,10 +21,9 @@ import {
   AlertTriangle,
   CheckCircle,
   MessageSquare,
-  Instagram,
-  Twitter,
   Globe,
 } from "lucide-react";
+import Image from "next/image";
 import { NetworkBackground } from "@/components/background/NetworkBackground";
 import { ModMenuSidebar } from "@/components/layout/ModMenuSidebar";
 import { MobileSidebar } from "@/components/layout/MobileSidebar";
@@ -37,34 +36,38 @@ import type { ScrapedDataRecord, ScraperType } from "@/types/scraped-data";
 const SCRAPER_CONFIGS: Record<ScraperType, {
   name: string;
   icon: React.ReactNode;
+  iconSrc?: string;
   color: string;
   bgColor: string;
   profileUrlPrefix?: string;
 }> = {
   telegram: {
     name: "Telegram",
-    icon: <MessageSquare className="w-4 h-4" />,
+    icon: <Image src="/icons/telegram.png" alt="Telegram" width={16} height={16} className="object-contain" />,
+    iconSrc: "/icons/telegram.png",
     color: "text-[#0088cc]",
     bgColor: "bg-[#0088cc]/20",
     profileUrlPrefix: "https://t.me/",
   },
   instagram: {
     name: "Instagram",
-    icon: <Instagram className="w-4 h-4" />,
+    icon: <Image src="/icons/instagram.png" alt="Instagram" width={16} height={16} className="object-contain" />,
+    iconSrc: "/icons/instagram.png",
     color: "text-[#E4405F]",
     bgColor: "bg-[#E4405F]/20",
     profileUrlPrefix: "https://instagram.com/",
   },
   twitter: {
     name: "Twitter/X",
-    icon: <Twitter className="w-4 h-4" />,
+    icon: <Globe className="w-4 h-4" />,
     color: "text-[#1DA1F2]",
     bgColor: "bg-[#1DA1F2]/20",
     profileUrlPrefix: "https://x.com/",
   },
   facebook: {
     name: "Facebook",
-    icon: <Users className="w-4 h-4" />,
+    icon: <Image src="/icons/facebook.png" alt="Facebook" width={16} height={16} className="object-contain" />,
+    iconSrc: "/icons/facebook.png",
     color: "text-[#1877F2]",
     bgColor: "bg-[#1877F2]/20",
     profileUrlPrefix: "https://facebook.com/",
@@ -103,6 +106,9 @@ const SCRAPER_CONFIGS: Record<ScraperType, {
   },
 };
 
+// Main platforms always shown
+const MAIN_PLATFORMS: ScraperType[] = ["telegram", "facebook", "instagram"];
+
 interface SourceStats {
   sourceIdentifier: string;
   sourceName: string | null;
@@ -137,7 +143,6 @@ export default function DatabasePage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-  const [viewMode, setViewMode] = useState<"sources" | "runs">("sources");
   const pageSize = 20;
 
   // Global stats
@@ -199,19 +204,33 @@ export default function DatabasePage() {
     [currentPage, activeScraperType]
   );
 
-  // Fetch available scraper types
+  // Fetch available scraper types from database
   const fetchAvailableTypes = useCallback(async () => {
     try {
-      // For now, we just check telegram. In future, query DB for distinct scraper_type values
-      const response = await fetch("/api/scraper/data?source=database&limit=1");
+      // Query distinct scraper types from the database
+      const response = await fetch("/api/scraper/stats/types");
       const data = await response.json();
       
-      if (data.success) {
-        // Always show telegram as available
-        setAvailableTypes(["telegram"]);
+      if (data.success && data.data?.types) {
+        // Start with main platforms
+        const typesSet = new Set<ScraperType>(MAIN_PLATFORMS);
+        
+        // Add any additional types from database (excluding "custom" if not needed)
+        (data.data.types as string[]).forEach((t) => {
+          if (t in SCRAPER_CONFIGS && t !== "custom") {
+            typesSet.add(t as ScraperType);
+          }
+        });
+        
+        setAvailableTypes(Array.from(typesSet));
+      } else {
+        // Fallback to main platforms
+        setAvailableTypes(MAIN_PLATFORMS);
       }
     } catch (error) {
       console.error("Failed to fetch available types:", error);
+      // Fallback to main platforms
+      setAvailableTypes(MAIN_PLATFORMS);
     }
   }, []);
 
@@ -735,169 +754,72 @@ export default function DatabasePage() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              {/* Sidebar - Sources/Runs List */}
+              {/* Sidebar - Sources List */}
               <div className="lg:col-span-1">
                 <NeonCard variant="default">
-                  {/* View Toggle */}
-                  <div className="flex mb-4 p-1 rounded-xl bg-demon-bg/50">
-                    <button
-                      onClick={() => setViewMode("sources")}
-                      className={`flex-1 py-2 px-3 text-xs rounded-lg transition-colors ${
-                        viewMode === "sources"
-                          ? "bg-demon-primary/20 text-demon-primary"
-                          : "text-demon-text-muted hover:text-demon-text"
-                      }`}
-                    >
-                      Sources
-                    </button>
-                    <button
-                      onClick={() => setViewMode("runs")}
-                      className={`flex-1 py-2 px-3 text-xs rounded-lg transition-colors ${
-                        viewMode === "runs"
-                          ? "bg-demon-primary/20 text-demon-primary"
-                          : "text-demon-text-muted hover:text-demon-text"
-                      }`}
-                    >
-                      Runs
-                    </button>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className={`${config.color}`}>{config.icon}</div>
+                    <span className="text-sm font-medium text-demon-text">
+                      {config.name} Sources ({sources.length})
+                    </span>
                   </div>
 
-                  {viewMode === "sources" ? (
-                    <>
-                      <div className="flex items-center gap-2 mb-4">
-                        <div className={`${config.color}`}>{config.icon}</div>
-                        <span className="text-sm font-medium text-demon-text">
-                          {config.name} Sources ({sources.length})
-                        </span>
-                      </div>
-
-                      <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                        {sources.length === 0 && !isLoading && (
-                          <p className="text-sm text-demon-text-muted text-center py-4">
-                            No data yet. Run a scraper first!
-                          </p>
-                        )}
-                        {sources.map((source, index) => (
-                          <motion.button
-                            key={source.sourceIdentifier}
-                            className={`
-                              w-full flex items-center gap-3 p-3 rounded-xl text-left
-                              transition-all duration-200
-                              ${
-                                selectedSource === source.sourceIdentifier
-                                  ? "bg-demon-primary/15 border border-demon-primary/30"
-                                  : "bg-demon-bg/30 border border-transparent hover:border-demon-primary/20 hover:bg-demon-bg/50"
-                              }
-                            `}
-                            onClick={() => {
-                              setSelectedSource(source.sourceIdentifier);
-                              setCurrentPage(1);
-                            }}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: index * 0.05 }}
-                          >
-                            <Table
-                              className={`w-4 h-4 ${
-                                selectedSource === source.sourceIdentifier
-                                  ? "text-demon-accent"
-                                  : "text-demon-text-muted"
-                              }`}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium truncate text-demon-text">
-                                {source.sourceName || source.sourceIdentifier}
-                              </div>
-                              <div className="flex items-center gap-2 text-[10px] text-demon-text-muted mt-0.5">
-                                <span>{source.recordCount.toLocaleString()} records</span>
-                                {source.premiumCount > 0 && (
-                                  <span className="text-demon-warning">
-                                    {source.premiumCount} ⭐
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <ChevronRight
-                              className={`w-4 h-4 transition-transform ${
-                                selectedSource === source.sourceIdentifier
-                                  ? "text-demon-accent rotate-90"
-                                  : "text-demon-text-muted"
-                              }`}
-                            />
-                          </motion.button>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 mb-4">
-                        <Clock className="w-4 h-4 text-demon-primary" />
-                        <span className="text-sm font-medium text-demon-text">
-                          Recent Runs
-                        </span>
-                      </div>
-
-                      <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                        {runs.length === 0 && !isLoading && (
-                          <p className="text-sm text-demon-text-muted text-center py-4">
-                            No runs yet
-                          </p>
-                        )}
-                        {runs.map((run, index) => (
-                          <motion.div
-                            key={run.id}
-                            className="p-3 rounded-xl bg-demon-bg/30 border border-transparent"
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: index * 0.05 }}
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-xs text-demon-text truncate">
-                                {run.actor_name}
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {sources.length === 0 && !isLoading && (
+                      <p className="text-sm text-demon-text-muted text-center py-4">
+                        No data yet. Run a scraper first!
+                      </p>
+                    )}
+                    {sources.map((source, index) => (
+                      <motion.button
+                        key={source.sourceIdentifier}
+                        className={`
+                          w-full flex items-center gap-3 p-3 rounded-xl text-left
+                          transition-all duration-200
+                          ${
+                            selectedSource === source.sourceIdentifier
+                              ? "bg-demon-primary/15 border border-demon-primary/30"
+                              : "bg-demon-bg/30 border border-transparent hover:border-demon-primary/20 hover:bg-demon-bg/50"
+                          }
+                        `}
+                        onClick={() => {
+                          setSelectedSource(source.sourceIdentifier);
+                          setCurrentPage(1);
+                        }}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                      >
+                        <Table
+                          className={`w-4 h-4 ${
+                            selectedSource === source.sourceIdentifier
+                              ? "text-demon-accent"
+                              : "text-demon-text-muted"
+                          }`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate text-demon-text">
+                            {source.sourceName || source.sourceIdentifier}
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-demon-text-muted mt-0.5">
+                            <span>{source.recordCount.toLocaleString()} records</span>
+                            {source.premiumCount > 0 && (
+                              <span className="text-demon-warning">
+                                {source.premiumCount} ⭐
                               </span>
-                              {getRunStatusBadge(run.status)}
-                            </div>
-                            <div className="flex items-center justify-between text-[10px] text-demon-text-muted">
-                              <span>{formatDate(run.started_at)}</span>
-                              <div className="flex items-center gap-2">
-                                <span className={run.items_count === 0 ? "text-demon-warning" : ""}>
-                                  {run.items_count} items
-                                </span>
-                                {run.items_count === 0 && run.status.toLowerCase() === "succeeded" && (
-                                  <button
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const btn = e.currentTarget;
-                                      btn.disabled = true;
-                                      btn.textContent = "...";
-                                      try {
-                                        const res = await fetch(`/api/scraper/sync/${run.run_id}`, { method: "POST" });
-                                        const data = await res.json();
-                                        if (data.success) {
-                                          alert(`Synced! ${data.data.itemsFound} items found, ${data.data.itemsSaved} saved.`);
-                                          fetchRuns();
-                                          fetchSources(activeScraperType);
-                                        } else {
-                                          alert(`Error: ${data.error}`);
-                                        }
-                                      } catch (err) {
-                                        alert("Sync failed");
-                                      }
-                                      btn.disabled = false;
-                                      btn.textContent = "Sync";
-                                    }}
-                                    className="px-2 py-0.5 text-[10px] rounded bg-demon-primary/20 text-demon-primary hover:bg-demon-primary/30 transition-colors"
-                                  >
-                                    Sync
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </div>
-                    </>
-                  )}
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight
+                          className={`w-4 h-4 transition-transform ${
+                            selectedSource === source.sourceIdentifier
+                              ? "text-demon-accent rotate-90"
+                              : "text-demon-text-muted"
+                          }`}
+                        />
+                      </motion.button>
+                    ))}
+                  </div>
                 </NeonCard>
               </div>
 

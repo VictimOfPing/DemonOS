@@ -30,6 +30,10 @@ export const APIFY_API_BASE_URL = "https://api.apify.com/v2";
 export const ACTOR_IDS = {
   /** bhansalisoft/telegram-group-member-scraper - Telegram Groups/Channel Member Scraper */
   TELEGRAM_GROUP_MEMBER: "bhansalisoft/telegram-group-member-scraper",
+  /** easyapi/facebook-group-members-scraper - Facebook Group Members Scraper */
+  FACEBOOK_GROUP_MEMBER: "easyapi/facebook-group-members-scraper",
+  /** thenetaji/instagram-followers-scraper - Instagram Followers Scraper */
+  INSTAGRAM_FOLLOWERS: "thenetaji/instagram-followers-scraper",
 } as const;
 
 /**
