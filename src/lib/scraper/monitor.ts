@@ -629,7 +629,7 @@ export async function monitorActiveRuns(options: {
   // Get all active runs AND recently completed/failed runs with 0 items (need sync or resurrect)
   const { data: activeRuns, error } = await supabase
     .from("scraper_runs")
-    .select("run_id, id, dataset_id, status, items_count, actor_id, resurrect_count")
+    .select("*")
     .or("status.in.(pending,running,timed_out,failed),and(status.eq.succeeded,items_count.eq.0)");
 
   if (error) {
