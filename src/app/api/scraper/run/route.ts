@@ -162,6 +162,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
 
       if (dbError) {
         console.error("Failed to save Instagram run to database:", dbError);
+        // Still return success since the Apify run started, but include warning
+        return NextResponse.json({
+          success: true,
+          data: {
+            runId: runInfo.id,
+            datasetId: runInfo.datasetId,
+            status: runInfo.status,
+            message: "Instagram scraper started but DB save failed: " + dbError.message,
+            dbError: dbError.message,
+          },
+        });
       }
 
       return NextResponse.json({
