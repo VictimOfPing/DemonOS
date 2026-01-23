@@ -29,6 +29,9 @@ interface StatsResponse {
   totals: {
     totalSources: number;
     totalRecords: number;
+    uniqueEntities: number;
+    duplicateCount: number;
+    duplicatePercentage: number;
     premiumCount: number;
     verifiedCount: number;
     botCount: number;
@@ -131,10 +134,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // Calculate unique entities and duplicates
+    let uniqueEntities = 0;
+    let duplicateCount = 0;
+
+    // Query to get unique entity count for duplicate detection
+    const { data: entityData } = await supabase
+      .from("scraped_data")
+      .select("entity_id")
+      .eq("scraper_type", scraperType);
+
+    if (entityData) {
+      const uniqueEntityIds = new Set(entityData.map((e: { entity_id: string }) => e.entity_id));
+      uniqueEntities = uniqueEntityIds.size;
+      const totalRecords = entityData.length;
+      duplicateCount = totalRecords - uniqueEntities;
+    }
+
+    const totalRecords = sources.reduce((acc, s) => acc + s.recordCount, 0);
+
     // Calculate totals
     const totals = {
       totalSources: sources.length,
-      totalRecords: sources.reduce((acc, s) => acc + s.recordCount, 0),
+      totalRecords,
+      uniqueEntities,
+      duplicateCount,
+      duplicatePercentage: totalRecords > 0 
+        ? Math.round((duplicateCount / totalRecords) * 100 * 100) / 100 
+        : 0,
       premiumCount: sources.reduce((acc, s) => acc + s.premiumCount, 0),
       verifiedCount: sources.reduce((acc, s) => acc + s.verifiedCount, 0),
       botCount: sources.reduce((acc, s) => acc + s.botCount, 0),

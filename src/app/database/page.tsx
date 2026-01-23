@@ -22,6 +22,8 @@ import {
   CheckCircle,
   MessageSquare,
   Globe,
+  Copy,
+  Sparkles,
 } from "lucide-react";
 import Image from "next/image";
 import { NetworkBackground } from "@/components/background/NetworkBackground";
@@ -149,11 +151,17 @@ export default function DatabasePage() {
   const [globalStats, setGlobalStats] = useState({
     totalSources: 0,
     totalRecords: 0,
+    uniqueEntities: 0,
+    duplicateCount: 0,
+    duplicatePercentage: 0,
     premiumCount: 0,
     verifiedCount: 0,
     botCount: 0,
     successfulRuns: 0,
   });
+
+  // Duplicate cleanup state
+  const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
 
   // Fetch aggregated stats (optimized - uses database aggregation instead of client-side)
   const fetchSources = useCallback(async (scraperType: ScraperType) => {
@@ -170,6 +178,9 @@ export default function DatabasePage() {
           ...prev,
           totalSources: data.data.totals?.totalSources || 0,
           totalRecords: data.data.totals?.totalRecords || 0,
+          uniqueEntities: data.data.totals?.uniqueEntities || 0,
+          duplicateCount: data.data.totals?.duplicateCount || 0,
+          duplicatePercentage: data.data.totals?.duplicatePercentage || 0,
           premiumCount: data.data.totals?.premiumCount || 0,
           verifiedCount: data.data.totals?.verifiedCount || 0,
           botCount: data.data.totals?.botCount || 0,
@@ -525,6 +536,50 @@ export default function DatabasePage() {
     }
   };
 
+  // Clean duplicates function
+  const handleCleanDuplicates = async (dryRun: boolean = true) => {
+    setIsCleaningDuplicates(true);
+    try {
+      const response = await fetch("/api/scraper/duplicates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scraperType: activeScraperType,
+          dryRun,
+          mode: "exact",
+        }),
+      });
+      const data = await response.json();
+
+      if (data.success && data.data) {
+        if (dryRun) {
+          // Show confirmation modal with count
+          if (data.data.deletedCount > 0) {
+            const confirmDelete = window.confirm(
+              `Found ${data.data.deletedCount} duplicate records affecting ${data.data.affectedEntities} entities.\n\nDo you want to remove them? (Oldest records will be kept)`
+            );
+            if (confirmDelete) {
+              await handleCleanDuplicates(false);
+            }
+          } else {
+            alert("No duplicates found! Your database is clean.");
+          }
+        } else {
+          // Refresh data after cleanup
+          alert(`Successfully removed ${data.data.deletedCount} duplicate records!`);
+          await handleRefresh();
+        }
+      } else {
+        alert(data.error || "Failed to clean duplicates");
+      }
+    } catch (error) {
+      console.error("Error cleaning duplicates:", error);
+      alert("Failed to clean duplicates");
+    } finally {
+      setIsCleaningDuplicates(false);
+    }
+  };
+
   const selectedSourceInfo = sources.find((s) => s.sourceIdentifier === selectedSource);
   const totalPages = Math.ceil(totalRecords / pageSize);
   const config = SCRAPER_CONFIGS[activeScraperType];
@@ -675,7 +730,7 @@ export default function DatabasePage() {
             </motion.div>
 
             {/* Stats Overview */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <motion.div
                 className="p-4 rounded-2xl glass border border-demon-primary/10"
                 initial={{ opacity: 0, y: 20 }}
@@ -707,10 +762,62 @@ export default function DatabasePage() {
                   </div>
                   <div>
                     <p className="text-2xl font-semibold text-demon-text">
-                      {sources.reduce((acc, s) => acc + s.recordCount, 0).toLocaleString()}
+                      {globalStats.uniqueEntities.toLocaleString()}
                     </p>
-                    <p className="text-xs text-demon-text-muted">Total Records</p>
+                    <p className="text-xs text-demon-text-muted">Unique Entities</p>
                   </div>
+                </div>
+              </motion.div>
+
+              <motion.div
+                className={`p-4 rounded-2xl glass border ${
+                  globalStats.duplicateCount > 0 
+                    ? "border-demon-danger/30 bg-demon-danger/5" 
+                    : "border-demon-primary/10"
+                }`}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    globalStats.duplicateCount > 0 
+                      ? "bg-demon-danger/20" 
+                      : "bg-demon-success/20"
+                  }`}>
+                    {globalStats.duplicateCount > 0 ? (
+                      <Copy className="w-5 h-5 text-demon-danger" />
+                    ) : (
+                      <Sparkles className="w-5 h-5 text-demon-success" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <p className={`text-2xl font-semibold ${
+                      globalStats.duplicateCount > 0 ? "text-demon-danger" : "text-demon-success"
+                    }`}>
+                      {globalStats.duplicateCount.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-demon-text-muted">
+                      {globalStats.duplicateCount > 0 
+                        ? `Duplicates (${globalStats.duplicatePercentage}%)` 
+                        : "No Duplicates"}
+                    </p>
+                  </div>
+                  {globalStats.duplicateCount > 0 && (
+                    <button
+                      onClick={() => handleCleanDuplicates(true)}
+                      disabled={isCleaningDuplicates}
+                      className="p-2 rounded-lg bg-demon-danger/20 text-demon-danger 
+                               hover:bg-demon-danger/30 transition-colors disabled:opacity-50"
+                      title="Clean duplicates"
+                    >
+                      {isCleaningDuplicates ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  )}
                 </div>
               </motion.div>
 
@@ -718,7 +825,7 @@ export default function DatabasePage() {
                 className="p-4 rounded-2xl glass border border-demon-primary/10"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
+                transition={{ delay: 0.25 }}
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-demon-warning/20 flex items-center justify-center">
@@ -726,7 +833,7 @@ export default function DatabasePage() {
                   </div>
                   <div>
                     <p className="text-2xl font-semibold text-demon-text">
-                      {sources.reduce((acc, s) => acc + s.premiumCount, 0).toLocaleString()}
+                      {globalStats.premiumCount.toLocaleString()}
                     </p>
                     <p className="text-xs text-demon-text-muted">Premium</p>
                   </div>
@@ -737,7 +844,7 @@ export default function DatabasePage() {
                 className="p-4 rounded-2xl glass border border-demon-primary/10"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25 }}
+                transition={{ delay: 0.3 }}
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-demon-accent/20 flex items-center justify-center">

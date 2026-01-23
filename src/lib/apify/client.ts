@@ -32,8 +32,8 @@ export const ACTOR_IDS = {
   TELEGRAM_GROUP_MEMBER: "bhansalisoft/telegram-group-member-scraper",
   /** easyapi/facebook-group-members-scraper - Facebook Group Members Scraper */
   FACEBOOK_GROUP_MEMBER: "easyapi/facebook-group-members-scraper",
-  /** thenetaji/instagram-followers-scraper - Instagram Followers Scraper */
-  INSTAGRAM_FOLLOWERS: "thenetaji/instagram-followers-scraper",
+  /** scraping_solutions/instagram-scraper-followers-following-no-cookies - Instagram Followers/Following Exporter */
+  INSTAGRAM_FOLLOWERS: "scraping_solutions/instagram-scraper-followers-following-no-cookies",
 } as const;
 
 /**
@@ -78,4 +78,25 @@ export async function getRunLogs(runId: string): Promise<string> {
   }
 
   return response.text();
+}
+
+/**
+ * Resurrect a failed/timed-out run
+ * This continues the run from where it stopped
+ * @see https://docs.apify.com/api/v2#/reference/actor-runs/resurrect-run
+ */
+export async function resurrectRun(runId: string): Promise<{
+  id: string;
+  status: string;
+  startedAt: string;
+  datasetId: string;
+}> {
+  const run = await apifyClient.run(runId).resurrect();
+  
+  return {
+    id: run.id,
+    status: run.status,
+    startedAt: run.startedAt?.toISOString() || new Date().toISOString(),
+    datasetId: run.defaultDatasetId,
+  };
 }

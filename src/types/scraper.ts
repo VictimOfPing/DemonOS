@@ -53,8 +53,6 @@ export interface ScraperConfig {
     authToken?: string;
     /** Max items to scrape (optional) */
     maxItems?: number;
-    /** Profile enrichment (optional, Instagram-specific) */
-    profileEnriched?: boolean;
   };
 }
 
@@ -80,14 +78,13 @@ export const AVAILABLE_SCRAPERS: Omit<ScraperConfig, "status" | "progress" | "it
   },
   {
     id: "instagram",
-    name: "Instagram Followers Scraper",
-    description: "Scrape Instagram followers with optional profile enrichment. No cookies or login required. Can scrape 100k+ profiles.",
+    name: "Instagram Followers/Following Scraper",
+    description: "Export Instagram followers or following lists at scale. No cookies required. Supports multiple usernames in a single run.",
     platform: "instagram",
-    actorId: "thenetaji/instagram-followers-scraper",
+    actorId: "scraping_solutions/instagram-scraper-followers-following-no-cookies",
     enabled: true,
     settings: {
-      maxItems: 100,
-      profileEnriched: false,
+      maxItems: 200,
     },
   },
 ];
@@ -102,11 +99,9 @@ export const RunScraperRequestSchema = z.object({
   /** Facebook group URLs to scrape (array) */
   groupUrls: z.array(z.string()).optional(),
   /** Maximum number of items to scrape (for Facebook and Instagram) */
-  maxItems: z.number().min(1).max(100000).optional(),
-  /** Instagram usernames to scrape followers from (array) */
+  maxItems: z.number().min(1).max(1000000).optional(),
+  /** Instagram usernames to scrape followers/following from (array) */
   instagramUsernames: z.array(z.string()).optional(),
-  /** Whether to enrich Instagram profiles with full data */
-  profileEnriched: z.boolean().optional(),
   /** Type of Instagram scrape: followers or following */
   instagramType: z.enum(["followers", "following"]).optional(),
 }).refine(
