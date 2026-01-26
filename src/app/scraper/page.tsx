@@ -163,8 +163,7 @@ export default function ScraperPage() {
   const [facebookMaxItems, setFacebookMaxItems] = useState(50);
   // Instagram-specific state
   const [instagramUsername, setInstagramUsername] = useState("");
-  const [instagramMaxItems, setInstagramMaxItems] = useState(100);
-  const [instagramEnrichProfile, setInstagramEnrichProfile] = useState(false);
+  const [instagramMaxItems, setInstagramMaxItems] = useState(200);
   const [modalScraperType, setModalScraperType] = useState<"telegram" | "facebook" | "instagram">("telegram");
   const [showLogsModal, setShowLogsModal] = useState(false);
   const [currentLogs, setCurrentLogs] = useState<string>("");
@@ -261,7 +260,6 @@ export default function ScraperPage() {
           ...requestBody,
           instagramUsernames: usernames,
           maxItems: instagramMaxItems,
-          profileEnriched: instagramEnrichProfile,
           instagramType: "followers",
         };
       }
@@ -281,8 +279,7 @@ export default function ScraperPage() {
         setFacebookGroupUrl("");
         setFacebookMaxItems(50);
         setInstagramUsername("");
-        setInstagramMaxItems(100);
-        setInstagramEnrichProfile(false);
+        setInstagramMaxItems(200);
         // Refresh runs list
         await fetchRuns();
       } else {
@@ -812,28 +809,21 @@ export default function ScraperPage() {
                     </div>
                     <div>
                       <label className="block text-sm text-demon-text-muted mb-2">
-                        Max Followers: {instagramMaxItems}
+                        Max Followers: {instagramMaxItems.toLocaleString()}
                       </label>
                       <input
                         type="range"
-                        min="10"
-                        max="10000"
-                        step="10"
+                        min="100"
+                        max="1000000"
+                        step="100"
                         value={instagramMaxItems}
                         onChange={(e) => setInstagramMaxItems(parseInt(e.target.value))}
                         className="w-full h-2 bg-demon-bg rounded-lg appearance-none cursor-pointer accent-[#E4405F]"
                       />
-                    </div>
-                    <div className="flex items-center justify-between p-4 rounded-xl bg-demon-bg border border-demon-primary/20">
-                      <div>
-                        <p className="text-sm font-medium text-demon-text">Enrich Profiles</p>
-                        <p className="text-xs text-demon-text-muted">Bio, follower count, etc.</p>
+                      <div className="flex justify-between text-xs text-demon-text-muted mt-1">
+                        <span>100</span>
+                        <span>1M</span>
                       </div>
-                      <ToggleSwitch
-                        checked={instagramEnrichProfile}
-                        onChange={setInstagramEnrichProfile}
-                        size="sm"
-                      />
                     </div>
                   </>
                 )}

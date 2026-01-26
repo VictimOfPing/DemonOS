@@ -31,7 +31,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
       );
     }
 
-    const { scraperId, targetGroup, authToken, groupUrls, maxItems, instagramUsernames, profileEnriched, instagramType } = validationResult.data;
+    const { scraperId, targetGroup, authToken, groupUrls, maxItems, instagramUsernames, instagramType } = validationResult.data;
 
     const supabase = getServerSupabase();
 
@@ -137,30 +137,42 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
         );
       }
 
+      // Convert instagramType to new format (capitalize first letter)
+      const dataToScrape = instagramType === "following" ? "Following" : "Followers";
+
       const runInfo = await startInstagramScraperAsync(instagramUsernames, {
-        maxItem: maxItems || 100,
-        profileEnriched: profileEnriched ?? false,
-        type: instagramType ?? "followers",
+        resultsLimit: maxItems || 200,
+        dataToScrape: dataToScrape,
       });
 
       // Save run to database
       const { error: dbError } = await supabase.from("scraper_runs").insert({
         run_id: runInfo.id,
         actor_id: ACTOR_IDS.INSTAGRAM_FOLLOWERS,
-        actor_name: "Instagram Followers Scraper",
+        actor_name: "Instagram Followers/Following Scraper",
         status: "running",
         started_at: runInfo.startedAt,
         dataset_id: runInfo.datasetId,
         input_config: {
-          usernames: instagramUsernames,
-          maxItem: maxItems || 100,
-          profileEnriched: profileEnriched ?? false,
-          type: instagramType ?? "followers",
+          Account: instagramUsernames,
+          resultsLimit: maxItems || 200,
+          dataToScrape: dataToScrape,
         },
       });
 
       if (dbError) {
         console.error("Failed to save Instagram run to database:", dbError);
+        // Still return success since the Apify run started, but include warning
+        return NextResponse.json({
+          success: true,
+          data: {
+            runId: runInfo.id,
+            datasetId: runInfo.datasetId,
+            status: runInfo.status,
+            message: "Instagram scraper started but DB save failed: " + dbError.message,
+            dbError: dbError.message,
+          },
+        });
       }
 
       return NextResponse.json({

@@ -1,7 +1,7 @@
 /**
- * Instagram Followers Actor Functions
- * Functions for thenetaji/instagram-followers-scraper
- * @see https://apify.com/thenetaji/instagram-followers-scraper
+ * Instagram Followers/Following Actor Functions
+ * Functions for scraping_solutions/instagram-scraper-followers-following-no-cookies
+ * @see https://apify.com/scraping_solutions/instagram-scraper-followers-following-no-cookies
  */
 
 import { apifyClient, ACTOR_IDS, getRunLogs } from "./client";
@@ -11,11 +11,10 @@ import type {
   InstagramFollower,
   ApifyRunStatus,
   InstagramScraperType,
-  InstagramBioLink,
 } from "./types";
 
-/** Default max items if not specified */
-const DEFAULT_MAX_ITEMS = 100;
+/** Default results limit if not specified */
+const DEFAULT_RESULTS_LIMIT = 200;
 
 /**
  * Parse and normalize Instagram username
@@ -49,26 +48,24 @@ export function parseInstagramUsername(input: string): string {
 }
 
 /**
- * Start a new run of the Instagram Followers scraper (async - returns immediately)
- * @param usernames - Array of Instagram usernames to scrape followers from
- * @param options - Optional configuration (maxItem, profileEnriched, type)
+ * Start a new run of the Instagram Followers/Following scraper (async - returns immediately)
+ * @param usernames - Array of Instagram usernames to scrape
+ * @param options - Optional configuration (resultsLimit, dataToScrape)
  */
 export async function startInstagramScraperAsync(
   usernames: string[],
   options: {
-    maxItem?: number;
-    profileEnriched?: boolean;
-    type?: InstagramScraperType;
+    resultsLimit?: number;
+    dataToScrape?: InstagramScraperType;
   } = {}
 ): Promise<ScraperRunInfo> {
   // Clean and normalize all usernames
   const cleanUsernames = usernames.map(parseInstagramUsername);
 
   const input: InstagramActorInput = {
-    username: cleanUsernames,
-    maxItem: options.maxItem ?? DEFAULT_MAX_ITEMS,
-    profileEnriched: options.profileEnriched ?? false,
-    type: options.type ?? "followers",
+    Account: cleanUsernames,
+    resultsLimit: options.resultsLimit ?? DEFAULT_RESULTS_LIMIT,
+    dataToScrape: options.dataToScrape ?? "Followers",
   };
 
   const run = await apifyClient
@@ -89,26 +86,24 @@ export async function startInstagramScraperAsync(
 }
 
 /**
- * Start a new run of the Instagram Followers scraper (sync - waits for completion)
- * @param usernames - Array of Instagram usernames to scrape followers from
- * @param options - Optional configuration (maxItem, profileEnriched, type)
+ * Start a new run of the Instagram Followers/Following scraper (sync - waits for completion)
+ * @param usernames - Array of Instagram usernames to scrape
+ * @param options - Optional configuration (resultsLimit, dataToScrape)
  */
 export async function startInstagramScraper(
   usernames: string[],
   options: {
-    maxItem?: number;
-    profileEnriched?: boolean;
-    type?: InstagramScraperType;
+    resultsLimit?: number;
+    dataToScrape?: InstagramScraperType;
   } = {}
 ): Promise<ScraperRunInfo> {
   // Clean and normalize all usernames
   const cleanUsernames = usernames.map(parseInstagramUsername);
 
   const input: InstagramActorInput = {
-    username: cleanUsernames,
-    maxItem: options.maxItem ?? DEFAULT_MAX_ITEMS,
-    profileEnriched: options.profileEnriched ?? false,
-    type: options.type ?? "followers",
+    Account: cleanUsernames,
+    resultsLimit: options.resultsLimit ?? DEFAULT_RESULTS_LIMIT,
+    dataToScrape: options.dataToScrape ?? "Followers",
   };
 
   const run = await apifyClient
@@ -170,55 +165,17 @@ export async function getInstagramRunData(
     .dataset(datasetId)
     .listItems({ limit, offset });
 
-  // Map the raw items to InstagramFollower type
-  const items: InstagramFollower[] = result.items.map((item: Record<string, unknown>) => {
-    // Check if this is enriched data (has biography field) or basic data
-    const isEnriched = "biography" in item || "edge_followed_by" in item;
-
-    if (isEnriched) {
-      return {
-        id: String(item.id || ""),
-        username: (item.username as string) || "",
-        full_name: (item.full_name as string) || "",
-        profile_pic_url: (item.profile_pic_url as string) || "",
-        profile_pic_url_hd: (item.profile_pic_url_hd as string) || undefined,
-        biography: (item.biography as string) || undefined,
-        bio_links: item.bio_links as InstagramBioLink[] | undefined,
-        external_url: item.external_url as string | null,
-        is_private: Boolean(item.is_private),
-        is_verified: Boolean(item.is_verified),
-        is_business_account: Boolean(item.is_business_account),
-        is_professional_account: Boolean(item.is_professional_account),
-        category_name: item.category_name as string | null,
-        edge_followed_by: item.edge_followed_by as { count: number } | undefined,
-        edge_follow: item.edge_follow as { count: number } | undefined,
-        edge_owner_to_timeline_media: item.edge_owner_to_timeline_media as { count: number } | undefined,
-        fbid: item.fbid as string | undefined,
-        followed_by_viewer: Boolean(item.followed_by_viewer),
-        requested_by_viewer: Boolean(item.requested_by_viewer),
-        follows_viewer: Boolean(item.follows_viewer),
-        blocked_by_viewer: Boolean(item.blocked_by_viewer),
-        has_clips: Boolean(item.has_clips),
-        has_guides: Boolean(item.has_guides),
-        has_channel: Boolean(item.has_channel),
-        highlight_reel_count: (item.highlight_reel_count as number) || undefined,
-        is_joined_recently: Boolean(item.is_joined_recently),
-        pronouns: (item.pronouns as string[]) || [],
-      };
-    }
-
-    // Basic follower data
-    return {
-      id: String(item.id || ""),
-      username: (item.username as string) || "",
-      full_name: (item.full_name as string) || "",
-      profile_pic_url: (item.profile_pic_url as string) || "",
-      is_private: Boolean(item.is_private),
-      is_verified: Boolean(item.is_verified),
-      followed_by_viewer: Boolean(item.followed_by_viewer),
-      requested_by_viewer: Boolean(item.requested_by_viewer),
-    };
-  });
+  // Map the raw items to InstagramFollower type (new scraper format)
+  const items: InstagramFollower[] = result.items.map((item: Record<string, unknown>) => ({
+    username_scrape: (item.username_scrape as string) || "",
+    type: (item.type as InstagramScraperType) || "Followers",
+    id: String(item.id || ""),
+    username: (item.username as string) || "",
+    full_name: (item.full_name as string) || "",
+    profile_pic_url: (item.profile_pic_url as string) || "",
+    is_private: Boolean(item.is_private),
+    is_verified: Boolean(item.is_verified),
+  }));
 
   return {
     items,

@@ -41,6 +41,7 @@ export interface Database {
           dataset_id: string | null;
           input_config: Json;
           error_message: string | null;
+          resurrect_count: number;
           created_at: string;
           updated_at: string;
         };
@@ -57,6 +58,7 @@ export interface Database {
           dataset_id?: string | null;
           input_config?: Json;
           error_message?: string | null;
+          resurrect_count?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -73,6 +75,7 @@ export interface Database {
           dataset_id?: string | null;
           input_config?: Json;
           error_message?: string | null;
+          resurrect_count?: number;
           created_at?: string;
           updated_at?: string;
         };

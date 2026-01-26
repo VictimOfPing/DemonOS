@@ -281,28 +281,33 @@ export interface FacebookGroupMember {
 // =====================================================
 
 /** Scraper type for Instagram followers */
-export type InstagramScraperType = "followers" | "following";
+export type InstagramScraperType = "Followers" | "Following";
 
 /**
- * Input configuration for thenetaji/instagram-followers-scraper
- * @see https://apify.com/thenetaji/instagram-followers-scraper
+ * Input configuration for scraping_solutions/instagram-scraper-followers-following-no-cookies
+ * @see https://apify.com/scraping_solutions/instagram-scraper-followers-following-no-cookies
  */
 export interface InstagramActorInput {
-  /** Array of Instagram usernames to scrape followers from */
-  username: string[];
-  /** Maximum number of followers to fetch per username (default: 100) */
-  maxItem?: number;
-  /** Whether to enrich profiles with full profile data (default: false) */
-  profileEnriched?: boolean;
-  /** Type of scrape: followers or following (default: followers) */
-  type?: InstagramScraperType;
+  /** Array of Instagram usernames to scrape (e.g., ["mrbeast", "nasa"]) */
+  Account: string[];
+  /** Maximum number of items to return per username */
+  resultsLimit: number;
+  /** Type of data to scrape: "Followers" or "Following" */
+  dataToScrape: InstagramScraperType;
 }
 
-/** Basic Instagram follower data (without enrichment) */
-export interface InstagramFollowerBasic {
+/**
+ * Instagram follower/following data from scraping_solutions scraper
+ * @see https://apify.com/scraping_solutions/instagram-scraper-followers-following-no-cookies
+ */
+export interface InstagramFollower {
+  /** The username that was scraped (the target account) */
+  username_scrape: string;
+  /** Type of relationship: "Followers" or "Following" */
+  type: InstagramScraperType;
   /** Instagram user unique identifier */
   id: string;
-  /** Instagram username */
+  /** Instagram username (handle) */
   username: string;
   /** User's full display name */
   full_name: string;
@@ -312,13 +317,9 @@ export interface InstagramFollowerBasic {
   is_private: boolean;
   /** Whether the user is verified */
   is_verified: boolean;
-  /** Whether you follow this user (viewer context) */
-  followed_by_viewer: boolean;
-  /** Whether you requested to follow this user (viewer context) */
-  requested_by_viewer: boolean;
 }
 
-/** Bio link object for enriched profiles */
+/** Bio link object (kept for backwards compatibility) */
 export interface InstagramBioLink {
   /** Link title */
   title: string;
@@ -329,64 +330,3 @@ export interface InstagramBioLink {
   /** Link type (external, etc.) */
   link_type: string;
 }
-
-/** Enriched Instagram follower profile data */
-export interface InstagramFollowerEnriched {
-  /** Instagram user unique identifier */
-  id: string;
-  /** Instagram username */
-  username: string;
-  /** User's full display name */
-  full_name: string;
-  /** Profile picture URL */
-  profile_pic_url: string;
-  /** HD profile picture URL */
-  profile_pic_url_hd?: string;
-  /** User biography/bio */
-  biography?: string;
-  /** Bio links array */
-  bio_links?: InstagramBioLink[];
-  /** External URL from profile */
-  external_url?: string | null;
-  /** Whether the account is private */
-  is_private: boolean;
-  /** Whether the user is verified */
-  is_verified: boolean;
-  /** Whether this is a business account */
-  is_business_account?: boolean;
-  /** Whether this is a professional account */
-  is_professional_account?: boolean;
-  /** Business category name */
-  category_name?: string | null;
-  /** Follower count */
-  edge_followed_by?: { count: number };
-  /** Following count */
-  edge_follow?: { count: number };
-  /** Media/post count */
-  edge_owner_to_timeline_media?: { count: number };
-  /** Facebook ID */
-  fbid?: string;
-  /** Whether the viewer follows this user */
-  followed_by_viewer?: boolean;
-  /** Whether the viewer requested to follow this user */
-  requested_by_viewer?: boolean;
-  /** Whether this user follows the viewer */
-  follows_viewer?: boolean;
-  /** Whether the viewer has blocked this user */
-  blocked_by_viewer?: boolean;
-  /** Whether the user has clips/reels */
-  has_clips?: boolean;
-  /** Whether the user has guides */
-  has_guides?: boolean;
-  /** Whether the user has a channel */
-  has_channel?: boolean;
-  /** Highlight reel count */
-  highlight_reel_count?: number;
-  /** Whether the user joined recently */
-  is_joined_recently?: boolean;
-  /** User pronouns */
-  pronouns?: string[];
-}
-
-/** Union type for Instagram follower data (basic or enriched) */
-export type InstagramFollower = InstagramFollowerBasic | InstagramFollowerEnriched;

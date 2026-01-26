@@ -19,6 +19,7 @@ export interface SyncResponse {
   updated: number;
   completed: number;
   dataSaved: number;
+  resurrected: number;
   summary: {
     pending: number;
     running: number;
@@ -35,6 +36,7 @@ export interface SyncResponse {
     isFinished: boolean;
     wasUpdated: boolean;
     dataSaved: boolean;
+    wasResurrected: boolean;
   }>;
   error?: string;
 }
@@ -63,6 +65,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<SyncRespon
         updated: result?.wasUpdated ? 1 : 0,
         completed: result?.isFinished ? 1 : 0,
         dataSaved: 0,
+        resurrected: 0,
         summary,
         runs: result ? [{
           runId: result.runId,
@@ -72,12 +75,16 @@ export async function GET(request: NextRequest): Promise<NextResponse<SyncRespon
           isFinished: result.isFinished,
           wasUpdated: result.wasUpdated,
           dataSaved: result.dataSaved,
+          wasResurrected: result.wasResurrected,
         }] : [],
       });
     }
 
-    // Monitor all active runs
-    const monitorResult = await monitorActiveRuns({ autoSaveOnComplete: autoSave });
+    // Monitor all active runs with auto-resurrect enabled
+    const monitorResult = await monitorActiveRuns({ 
+      autoSaveOnComplete: autoSave,
+      autoResurrect: true,
+    });
     const summary = await getRunsSummary();
 
     const duration = Date.now() - startTime;
@@ -85,6 +92,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<SyncRespon
       checked: monitorResult.checked,
       updated: monitorResult.updated,
       completed: monitorResult.completed,
+      resurrected: monitorResult.resurrected,
     });
 
     return NextResponse.json({
@@ -94,6 +102,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<SyncRespon
       updated: monitorResult.updated,
       completed: monitorResult.completed,
       dataSaved: monitorResult.dataSaved,
+      resurrected: monitorResult.resurrected,
       summary,
       runs: monitorResult.runs.map((r) => ({
         runId: r.runId,
@@ -103,6 +112,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<SyncRespon
         isFinished: r.isFinished,
         wasUpdated: r.wasUpdated,
         dataSaved: r.dataSaved,
+        wasResurrected: r.wasResurrected,
       })),
     });
   } catch (error) {
@@ -115,6 +125,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<SyncRespon
       updated: 0,
       completed: 0,
       dataSaved: 0,
+      resurrected: 0,
       summary: { pending: 0, running: 0, succeeded: 0, failed: 0, aborted: 0, total: 0 },
       runs: [],
       error: error instanceof Error ? error.message : "Sync failed",
@@ -129,15 +140,17 @@ export async function GET(request: NextRequest): Promise<NextResponse<SyncRespon
 export async function POST(request: NextRequest): Promise<NextResponse<SyncResponse>> {
   try {
     const body = await request.json();
-    const { autoSave = true, forceDataSave = false } = body;
+    const { autoSave = true, forceDataSave = false, autoResurrect = true } = body;
 
     const monitorResult = await monitorActiveRuns({ 
       autoSaveOnComplete: autoSave || forceDataSave,
+      autoResurrect: autoResurrect,
     });
     const summary = await getRunsSummary();
 
     logger.info("Force sync completed", { 
       checked: monitorResult.checked,
+      resurrected: monitorResult.resurrected,
       forceDataSave,
     });
 
@@ -148,6 +161,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<SyncRespo
       updated: monitorResult.updated,
       completed: monitorResult.completed,
       dataSaved: monitorResult.dataSaved,
+      resurrected: monitorResult.resurrected,
       summary,
       runs: monitorResult.runs.map((r) => ({
         runId: r.runId,
@@ -157,6 +171,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<SyncRespo
         isFinished: r.isFinished,
         wasUpdated: r.wasUpdated,
         dataSaved: r.dataSaved,
+        wasResurrected: r.wasResurrected,
       })),
     });
   } catch (error) {
@@ -169,6 +184,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<SyncRespo
       updated: 0,
       completed: 0,
       dataSaved: 0,
+      resurrected: 0,
       summary: { pending: 0, running: 0, succeeded: 0, failed: 0, aborted: 0, total: 0 },
       runs: [],
       error: error instanceof Error ? error.message : "Sync failed",

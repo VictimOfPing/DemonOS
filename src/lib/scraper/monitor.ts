@@ -4,10 +4,14 @@
  */
 
 import { getRunStatus, getRunData, getRunDataRaw } from "@/lib/apify/telegram-actor";
+import { resurrectRun } from "@/lib/apify/client";
 import { getServerSupabase } from "@/lib/supabase/client";
 import { createLogger } from "@/lib/supabase/logger";
 import type { ApifyRunStatus } from "@/lib/apify/types";
 import type { ScraperRunStatus } from "@/lib/supabase/types";
+
+/** Maximum number of auto-resurrect attempts per run */
+const MAX_RESURRECT_ATTEMPTS = 3;
 
 const logger = createLogger("scraper-monitor");
 
@@ -29,9 +33,10 @@ function extractSourceIdentifier(inputConfig: Record<string, unknown>, scraperTy
         "unknown_facebook_group"
       );
     case "instagram":
-      // Instagram uses array of usernames
+      // New scraper uses Account array, old uses username
+      const accounts = inputConfig.Account as string[] | undefined;
       const usernames = inputConfig.username as string[] | undefined;
-      return usernames?.[0] || String(inputConfig.username || "unknown_instagram_user");
+      return accounts?.[0] || usernames?.[0] || String(inputConfig.username || "unknown_instagram_user");
     default:
       return String(
         inputConfig.source ||
@@ -148,8 +153,12 @@ function detectScraperType(actorId?: string, actorName?: string): string {
     id.includes("instagram") ||
     name.includes("instagram") ||
     id.includes("thenetaji") ||
+<<<<<<< HEAD
     id.includes("scraping_solutions") ||
     id.includes("scraping-solutions")
+=======
+    id.includes("scraping_solutions")
+>>>>>>> 5fec46b923a74d2ff50382e7e0582d7ffdc34e4c
   ) {
     return "instagram";
   }
@@ -195,7 +204,50 @@ export interface MonitoredRun {
   isFinished: boolean;
   wasUpdated: boolean;
   dataSaved: boolean;
+  wasResurrected: boolean;
   error?: string;
+}
+
+/**
+ * Auto-resurrect a failed/timed-out run
+ * Returns the new status if resurrected, null otherwise
+ */
+async function autoResurrectRun(
+  runId: string,
+  dbRunId: string,
+  currentAttempts: number
+): Promise<{ success: boolean; newRunId?: string; error?: string }> {
+  const supabase = getServerSupabase();
+  
+  if (currentAttempts >= MAX_RESURRECT_ATTEMPTS) {
+    logger.warn(`Run ${runId} has reached max resurrect attempts (${MAX_RESURRECT_ATTEMPTS})`);
+    return { success: false, error: "Max resurrect attempts reached" };
+  }
+  
+  try {
+    logger.info(`Auto-resurrecting run ${runId} (attempt ${currentAttempts + 1}/${MAX_RESURRECT_ATTEMPTS})`);
+    
+    const result = await resurrectRun(runId);
+    
+    // Update database with new status and increment attempt counter
+    await supabase
+      .from("scraper_runs")
+      .update({
+        status: "running",
+        error_message: null,
+        finished_at: null,
+        resurrect_count: currentAttempts + 1,
+      })
+      .eq("id", dbRunId);
+    
+    logger.info(`Run ${runId} resurrected successfully, now status: ${result.status}`);
+    
+    return { success: true, newRunId: result.id };
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : "Unknown error";
+    logger.error(`Failed to resurrect run ${runId}: ${errMsg}`);
+    return { success: false, error: errMsg };
+  }
 }
 
 /**
@@ -283,6 +335,7 @@ export async function checkRunStatus(runId: string): Promise<MonitoredRun | null
       isFinished,
       wasUpdated: statusChanged || itemsChanged,
       dataSaved: false,
+      wasResurrected: false,
     };
   } catch (error) {
     logger.error(`Failed to check run ${runId}`, error);
@@ -295,6 +348,8 @@ export interface AutoSaveResult {
   savedCount: number;
   totalItems: number;
   validItems: number;
+  updatedCount: number; // Records that were updated (duplicates)
+  newCount: number;     // New records inserted
   error?: string;
   errorCode?: string;
   errorDetails?: string;
@@ -338,7 +393,7 @@ export async function autoSaveRunData(
     }
 
     if (allItems.length === 0) {
-      return { savedCount: 0, totalItems: 0, validItems: 0 };
+      return { savedCount: 0, totalItems: 0, validItems: 0, updatedCount: 0, newCount: 0 };
     }
 
     // Log first item to debug structure
@@ -388,12 +443,26 @@ export async function autoSaveRunData(
         savedCount: 0, 
         totalItems: allItems.length, 
         validItems: 0,
+        updatedCount: 0,
+        newCount: 0,
         error: errorMsg 
       };
     }
 
     // Log a sample of what we're trying to insert
     logger.info(`Sample insert data: ${JSON.stringify(validData[0], null, 2)}`);
+
+    // Count existing records before insert to track duplicates
+    const entityIds = validData.map(item => item.entity_id);
+    const { count: existingCount } = await supabase
+      .from("scraped_data")
+      .select("*", { count: "exact", head: true })
+      .eq("scraper_type", scraperType)
+      .eq("source_identifier", sourceIdentifier)
+      .in("entity_id", entityIds);
+
+    const existingBeforeInsert = existingCount || 0;
+    logger.info(`Found ${existingBeforeInsert} existing records that will be updated`);
 
     // Insert in batches using upsert
     const BATCH_SIZE = 500;
@@ -420,8 +489,16 @@ export async function autoSaveRunData(
       }
     }
 
+    // Calculate new vs updated counts
+    const updatedCount = existingBeforeInsert;
+    const newCount = savedCount > 0 ? Math.max(0, savedCount - updatedCount) : 0;
+
     if (savedCount === 0 && lastError) {
       logger.error(`All batches failed. Error: code=${lastError.code}, message=${lastError.message}, details=${lastError.details}, hint=${lastError.hint}`);
+    }
+
+    if (updatedCount > 0) {
+      logger.info(`Duplicate handling: ${updatedCount} records updated, ${newCount} new records added`);
     }
 
     // Update run with final count
@@ -430,12 +507,14 @@ export async function autoSaveRunData(
       .update({ items_count: savedCount })
       .eq("id", dbRunId);
 
-    logger.info(`Auto-saved ${savedCount} items for run ${dbRunId}`);
+    logger.info(`Auto-saved ${savedCount} items for run ${dbRunId} (${newCount} new, ${updatedCount} updated)`);
     
     return { 
       savedCount, 
       totalItems: allItems.length, 
       validItems: validData.length,
+      updatedCount,
+      newCount,
       error: lastError?.message,
       errorCode: lastError?.code,
       errorDetails: lastError?.details,
@@ -447,6 +526,8 @@ export async function autoSaveRunData(
       savedCount: 0, 
       totalItems: 0, 
       validItems: 0,
+      updatedCount: 0,
+      newCount: 0,
       error: errMsg 
     };
   }
@@ -568,31 +649,45 @@ export async function syncRunData(runId: string): Promise<{
  */
 export async function monitorActiveRuns(options: {
   autoSaveOnComplete?: boolean;
+  autoResurrect?: boolean;
 } = {}): Promise<{
   checked: number;
   updated: number;
   completed: number;
   dataSaved: number;
+  resurrected: number;
   runs: MonitoredRun[];
 }> {
-  const { autoSaveOnComplete = true } = options;
+  const { autoSaveOnComplete = true, autoResurrect = true } = options;
   const supabase = getServerSupabase();
   
+<<<<<<< HEAD
   // Get all active runs AND recently completed runs with 0 items (need sync)
   // Also include timed_out runs with 0 items since they may have data to save
   const { data: activeRuns, error } = await supabase
     .from("scraper_runs")
     .select("run_id, id, dataset_id, status, items_count, actor_id")
     .or("status.in.(pending,running),and(status.eq.succeeded,items_count.eq.0),and(status.eq.timed_out,items_count.eq.0)");
+=======
+  // Get all active runs AND recently completed/failed runs with 0 items (need sync or resurrect)
+  const { data: activeRuns, error } = await supabase
+    .from("scraper_runs")
+    .select("*")
+    .or("status.in.(pending,running,timed_out,failed),and(status.eq.succeeded,items_count.eq.0)");
+>>>>>>> 5fec46b923a74d2ff50382e7e0582d7ffdc34e4c
 
   if (error) {
     logger.error("Failed to fetch active runs", error);
-    return { checked: 0, updated: 0, completed: 0, dataSaved: 0, runs: [] };
+    return { checked: 0, updated: 0, completed: 0, dataSaved: 0, resurrected: 0, runs: [] };
   }
 
   if (!activeRuns || activeRuns.length === 0) {
+<<<<<<< HEAD
     logger.info("No active runs to monitor");
     return { checked: 0, updated: 0, completed: 0, dataSaved: 0, runs: [] };
+=======
+    return { checked: 0, updated: 0, completed: 0, dataSaved: 0, resurrected: 0, runs: [] };
+>>>>>>> 5fec46b923a74d2ff50382e7e0582d7ffdc34e4c
   }
   
   logger.info(`Monitoring ${activeRuns.length} runs: ${activeRuns.map(r => r.run_id).join(", ")}`);
@@ -601,6 +696,7 @@ export async function monitorActiveRuns(options: {
   let updated = 0;
   let completed = 0;
   let dataSaved = 0;
+  let resurrected = 0;
 
   // Check each active run
   for (const run of activeRuns) {
@@ -615,6 +711,21 @@ export async function monitorActiveRuns(options: {
 
       // Handle completed runs
       if (result.isFinished) {
+        // Auto-resurrect on timeout or failure
+        if (autoResurrect && (result.apifyStatus === "TIMED-OUT" || result.apifyStatus === "FAILED")) {
+          const currentAttempts = run.resurrect_count || 0;
+          const resurrectResult = await autoResurrectRun(run.run_id, run.id, currentAttempts);
+          
+          if (resurrectResult.success) {
+            result.wasResurrected = true;
+            result.status = "running";
+            result.isFinished = false;
+            resurrected++;
+            // Don't count as completed since it's been resurrected
+            continue;
+          }
+        }
+
         completed++;
 
         // Auto-save data on successful completion or timed out runs with data
@@ -635,13 +746,14 @@ export async function monitorActiveRuns(options: {
     }
   }
 
-  logger.info(`Monitor check complete: ${results.length} runs checked, ${updated} updated, ${completed} completed, ${dataSaved} items saved`);
+  logger.info(`Monitor check complete: ${results.length} runs checked, ${updated} updated, ${completed} completed, ${resurrected} resurrected, ${dataSaved} items saved`);
 
   return {
     checked: results.length,
     updated,
     completed,
     dataSaved,
+    resurrected,
     runs: results,
   };
 }

@@ -454,3 +454,9 @@ BEGIN
     RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql;
+
+-- =====================================================
+-- Migration: Add resurrect_count column to scraper_runs
+-- Tracks how many times a run has been auto-resurrected
+-- =====================================================
+ALTER TABLE scraper_runs ADD COLUMN IF NOT EXISTS resurrect_count INTEGER DEFAULT 0;

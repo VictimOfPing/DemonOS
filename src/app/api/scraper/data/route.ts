@@ -113,6 +113,7 @@ function transformTelegramItem(
 
 /**
  * Transform Instagram raw item to ScrapedDataRecord
+ * Supports new scraping_solutions format with username_scrape and type fields
  */
 function transformInstagramItem(
   item: Record<string, unknown>,
@@ -120,10 +121,9 @@ function transformInstagramItem(
   runId: string | null,
   sourceUsername?: string
 ): ScrapedDataRecord {
-  // Check if this is enriched data
-  const isEnriched = "biography" in item || "edge_followed_by" in item;
-  const followerCount = (item.edge_followed_by as { count: number })?.count;
-  const followingCount = (item.edge_follow as { count: number })?.count;
+  // New scraper format includes username_scrape (the target account)
+  const scrapeTarget = (item.username_scrape as string) || sourceUsername || "unknown";
+  const scrapeType = (item.type as string) || "Followers";
 
   return {
     id: `apify-ig-${index}`,
@@ -132,16 +132,15 @@ function transformInstagramItem(
     updatedAt: new Date().toISOString(),
     scraperType: "instagram" as ScraperType,
     scraperActor: ACTOR_IDS.INSTAGRAM_FOLLOWERS,
-    sourceIdentifier: sourceUsername || "unknown",
-    sourceName: null,
+    sourceIdentifier: scrapeTarget,
+    sourceName: scrapeType,
     entityId: String(item.id || index),
     entityType: "member",
     entityName: (item.full_name as string) || null,
     data: {
       ...item,
-      _enriched: isEnriched,
-      _followerCount: followerCount,
-      _followingCount: followingCount,
+      _scrapeTarget: scrapeTarget,
+      _scrapeType: scrapeType,
     },
     username: (item.username as string) || null,
     displayName: (item.full_name as string) || null,
@@ -615,6 +614,7 @@ function transformTelegramItemForInsert(
 
 /**
  * Transform Instagram item for database insert
+ * Supports new scraping_solutions format with username_scrape and type fields
  */
 function transformInstagramItemForInsert(
   item: Record<string, unknown>,
@@ -625,20 +625,19 @@ function transformInstagramItemForInsert(
   const username = (item.username as string) || null;
   const fullName = (item.full_name as string) || null;
 
-  // Get source identifier from input config (first username being scraped)
-  const usernames = inputConfig.usernames as string[] | undefined;
-  const sourceIdentifier = usernames?.[0] || "unknown_instagram_user";
-
-  // Check if this is enriched data
-  const isEnriched = "biography" in item || "edge_followed_by" in item;
-  const followerCount = (item.edge_followed_by as { count: number })?.count;
-  const followingCount = (item.edge_follow as { count: number })?.count;
+  // New scraper format: get source from item.username_scrape or fallback to input config
+  const scrapeTarget = (item.username_scrape as string) || 
+    (inputConfig.Account as string[] | undefined)?.[0] || 
+    "unknown_instagram_user";
+  const scrapeType = (item.type as string) || 
+    (inputConfig.dataToScrape as string) || 
+    "Followers";
 
   return {
     scraper_type: "instagram",
     scraper_actor: actorId,
-    source_identifier: sourceIdentifier,
-    source_name: sourceIdentifier,
+    source_identifier: scrapeTarget,
+    source_name: scrapeType,
     entity_id: entityId,
     entity_type: "member",
     entity_name: fullName,
@@ -652,9 +651,8 @@ function transformInstagramItemForInsert(
     is_active: !Boolean(item.is_private),
     data: {
       ...item,
-      _enriched: isEnriched,
-      _followerCount: followerCount,
-      _followingCount: followingCount,
+      _scrapeTarget: scrapeTarget,
+      _scrapeType: scrapeType,
     },
   };
 }
