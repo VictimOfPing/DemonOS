@@ -32,15 +32,10 @@ export const ACTOR_IDS = {
   TELEGRAM_GROUP_MEMBER: "bhansalisoft/telegram-group-member-scraper",
   /** easyapi/facebook-group-members-scraper - Facebook Group Members Scraper */
   FACEBOOK_GROUP_MEMBER: "easyapi/facebook-group-members-scraper",
-<<<<<<< HEAD
-  /** thenetaji/instagram-followers-scraper - Instagram Followers Scraper */
-  INSTAGRAM_FOLLOWERS: "thenetaji/instagram-followers-scraper",
-  /** scraping_solutions/instagram-scraper-followers-following-no-cookies - Alternative Instagram scraper */
-  INSTAGRAM_FOLLOWERS_ALT: "scraping_solutions/instagram-scraper-followers-following-no-cookies",
-=======
   /** scraping_solutions/instagram-scraper-followers-following-no-cookies - Instagram Followers/Following Exporter */
   INSTAGRAM_FOLLOWERS: "scraping_solutions/instagram-scraper-followers-following-no-cookies",
->>>>>>> 5fec46b923a74d2ff50382e7e0582d7ffdc34e4c
+  /** thenetaji/instagram-followers-scraper - Alternative Instagram Followers Scraper */
+  INSTAGRAM_FOLLOWERS_ALT: "thenetaji/instagram-followers-scraper",
 } as const;
 
 /**

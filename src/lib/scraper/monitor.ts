@@ -153,12 +153,8 @@ function detectScraperType(actorId?: string, actorName?: string): string {
     id.includes("instagram") ||
     name.includes("instagram") ||
     id.includes("thenetaji") ||
-<<<<<<< HEAD
     id.includes("scraping_solutions") ||
     id.includes("scraping-solutions")
-=======
-    id.includes("scraping_solutions")
->>>>>>> 5fec46b923a74d2ff50382e7e0582d7ffdc34e4c
   ) {
     return "instagram";
   }
@@ -661,20 +657,11 @@ export async function monitorActiveRuns(options: {
   const { autoSaveOnComplete = true, autoResurrect = true } = options;
   const supabase = getServerSupabase();
   
-<<<<<<< HEAD
-  // Get all active runs AND recently completed runs with 0 items (need sync)
-  // Also include timed_out runs with 0 items since they may have data to save
-  const { data: activeRuns, error } = await supabase
-    .from("scraper_runs")
-    .select("run_id, id, dataset_id, status, items_count, actor_id")
-    .or("status.in.(pending,running),and(status.eq.succeeded,items_count.eq.0),and(status.eq.timed_out,items_count.eq.0)");
-=======
   // Get all active runs AND recently completed/failed runs with 0 items (need sync or resurrect)
   const { data: activeRuns, error } = await supabase
     .from("scraper_runs")
     .select("*")
     .or("status.in.(pending,running,timed_out,failed),and(status.eq.succeeded,items_count.eq.0)");
->>>>>>> 5fec46b923a74d2ff50382e7e0582d7ffdc34e4c
 
   if (error) {
     logger.error("Failed to fetch active runs", error);
@@ -682,12 +669,8 @@ export async function monitorActiveRuns(options: {
   }
 
   if (!activeRuns || activeRuns.length === 0) {
-<<<<<<< HEAD
     logger.info("No active runs to monitor");
-    return { checked: 0, updated: 0, completed: 0, dataSaved: 0, runs: [] };
-=======
     return { checked: 0, updated: 0, completed: 0, dataSaved: 0, resurrected: 0, runs: [] };
->>>>>>> 5fec46b923a74d2ff50382e7e0582d7ffdc34e4c
   }
   
   logger.info(`Monitoring ${activeRuns.length} runs: ${activeRuns.map(r => r.run_id).join(", ")}`);
