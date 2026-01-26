@@ -107,7 +107,10 @@ function getStatusInfo(status: string, itemsCount: number, errorMessage: string 
   color: string; 
   message: string 
 } {
-  switch (status.toLowerCase()) {
+  // Normalize status - handle both hyphenated and underscored versions
+  const normalizedStatus = status.toLowerCase().replace(/-/g, "_");
+  
+  switch (normalizedStatus) {
     case "succeeded":
       return {
         icon: <CheckCircle className="w-4 h-4" />,
@@ -122,11 +125,16 @@ function getStatusInfo(status: string, itemsCount: number, errorMessage: string 
         message: "Actor is running...",
       };
     case "failed":
-    case "timed-out":
       return {
         icon: <XCircle className="w-4 h-4" />,
         color: "text-demon-danger",
         message: errorMessage || "Actor failed",
+      };
+    case "timed_out":
+      return {
+        icon: <AlertTriangle className="w-4 h-4" />,
+        color: "text-demon-warning",
+        message: errorMessage || `Actor timed out with ${itemsCount.toLocaleString()} results`,
       };
     case "aborted":
       return {
@@ -303,6 +311,30 @@ export default function ScraperPage() {
       }
     } catch (error) {
       console.error("Error aborting run:", error);
+    }
+  };
+
+  const forceCloseRun = async (runId: string) => {
+    if (!confirm("Force close this stuck run? This will mark it as timed_out.")) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/scraper/sync/${runId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "timed_out" }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        await fetchRuns();
+      } else {
+        alert(`Failed to close run: ${data.error}`);
+      }
+    } catch (error) {
+      console.error("Error force closing run:", error);
+      alert("Failed to force close run");
     }
   };
 
@@ -528,13 +560,22 @@ export default function ScraperPage() {
                           {/* Actions */}
                           <div className="flex items-center justify-end gap-1">
                             {isRunning && (
-                              <button
-                                onClick={() => abortRun(run.run_id)}
-                                className="p-1.5 rounded-lg text-demon-danger hover:bg-demon-danger/10 transition-colors"
-                                title="Abort run"
-                              >
-                                <Square className="w-4 h-4" />
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => abortRun(run.run_id)}
+                                  className="p-1.5 rounded-lg text-demon-danger hover:bg-demon-danger/10 transition-colors"
+                                  title="Abort run"
+                                >
+                                  <Square className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => forceCloseRun(run.run_id)}
+                                  className="p-1.5 rounded-lg text-demon-warning hover:bg-demon-warning/10 transition-colors"
+                                  title="Force close stuck run"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </>
                             )}
                             <button
                               onClick={() => viewLogs(run.run_id)}
@@ -579,12 +620,20 @@ export default function ScraperPage() {
                           </div>
                           <div className="flex items-center gap-2 pl-7">
                             {isRunning && (
-                              <button
-                                onClick={() => abortRun(run.run_id)}
-                                className="px-3 py-1.5 rounded-lg text-xs bg-demon-danger/10 text-demon-danger"
-                              >
-                                Abort
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => abortRun(run.run_id)}
+                                  className="px-3 py-1.5 rounded-lg text-xs bg-demon-danger/10 text-demon-danger"
+                                >
+                                  Abort
+                                </button>
+                                <button
+                                  onClick={() => forceCloseRun(run.run_id)}
+                                  className="px-3 py-1.5 rounded-lg text-xs bg-demon-warning/10 text-demon-warning"
+                                >
+                                  Force Close
+                                </button>
+                              </>
                             )}
                             <button
                               onClick={() => viewLogs(run.run_id)}

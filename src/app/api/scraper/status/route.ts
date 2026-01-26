@@ -21,9 +21,10 @@ function mapApifyToDbStatus(apifyStatus: string): ScraperRunStatus {
     case "SUCCEEDED":
       return "succeeded";
     case "FAILED":
+      return "failed";
     case "TIMED-OUT":
     case "TIMING-OUT":
-      return "failed";
+      return "timed_out";
     case "ABORTING":
     case "ABORTED":
       return "aborted";

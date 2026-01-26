@@ -7,7 +7,8 @@ import { usePathname } from "next/navigation";
 import { 
   LayoutDashboard, 
   Bot, 
-  Database
+  Database,
+  Send
 } from "lucide-react";
 import { GlitchLogo } from "./GlitchLogo";
 import { NAV_ITEMS } from "@/lib/constants";
@@ -15,6 +16,7 @@ import { NAV_ITEMS } from "@/lib/constants";
 const iconMap = {
   LayoutDashboard,
   Bot,
+  Send,
   Database,
 } as const;
 
@@ -70,6 +72,7 @@ export function ModMenuSidebar() {
     switch (id) {
       case "dashboard": return "/";
       case "scraper": return "/scraper";
+      case "telegram-campaigns": return "/telegram-campaigns";
       case "database": return "/database";
       default: return "/";
     }

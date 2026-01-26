@@ -166,10 +166,80 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     const sourceIdentifier = searchParams.get("sourceIdentifier");
     const entityType = searchParams.get("entityType");
     const search = searchParams.get("search");
+    const groupsOnly = searchParams.get("groupsOnly") === "true";
 
     // Validate limit
     const safeLimit = Math.min(Math.max(limit, 1), 1000);
     const safeOffset = Math.max(offset, 0);
+
+    // Special case: return only unique groups/source identifiers
+    if (groupsOnly && source === "database") {
+      const supabase = getServerSupabase();
+      
+      // Try using the stats view which already has unique sources
+      const { data: viewData, error: viewError } = await supabase
+        .from("scraped_data_stats")
+        .select("source_identifier, source_name")
+        .eq("scraper_type", scraperType || "telegram");
+
+      if (!viewError && viewData && viewData.length > 0) {
+        const groups = viewData.map((row: any) => row.source_identifier).sort();
+        
+        logger.info(`Found ${groups.length} unique groups for ${scraperType} (from view)`, { groups });
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            items: groups.map((group: string, idx: number) => ({
+              id: `group-${idx}`,
+              source_identifier: group,
+              source_name: group,
+            })) as any,
+            total: groups.length,
+            hasMore: false,
+            source: "database",
+          },
+        });
+      }
+
+      // Fallback: fetch all records and deduplicate (inefficient but works)
+      const { data, error } = await supabase
+        .from("scraped_data")
+        .select("source_identifier, source_name")
+        .eq("scraper_type", scraperType || "telegram")
+        .not("source_identifier", "is", null);
+
+      if (error) {
+        logger.error("Error fetching groups", error);
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      // Manual deduplication preserving order
+      const seen = new Map<string, string>();
+      (data || []).forEach((row: any) => {
+        if (!seen.has(row.source_identifier)) {
+          seen.set(row.source_identifier, row.source_name || row.source_identifier);
+        }
+      });
+
+      const uniqueGroups = Array.from(seen.keys()).sort();
+      
+      logger.info(`Found ${uniqueGroups.length} unique groups for ${scraperType} (manual dedup)`, { groups: uniqueGroups });
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          items: uniqueGroups.map((group: string, idx: number) => ({
+            id: `group-${idx}`,
+            source_identifier: group,
+            source_name: seen.get(group) || group,
+          })) as any,
+          total: uniqueGroups.length,
+          hasMore: false,
+          source: "database",
+        },
+      });
+    }
 
     // If source is database, fetch from Supabase scraped_data table
     if (source === "database") {

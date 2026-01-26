@@ -32,7 +32,8 @@ export const ANIMATION = {
 export const NAV_ITEMS = [
   { id: "dashboard", label: "DASHBOARD", icon: "LayoutDashboard", hotkey: "F1", path: "/" },
   { id: "scraper", label: "SCRAPER", icon: "Bot", hotkey: "F2", path: "/scraper" },
-  { id: "database", label: "DATABASE", icon: "Database", hotkey: "F3", path: "/database" },
+  { id: "telegram-campaigns", label: "CAMPAIGNS", icon: "Send", hotkey: "F3", path: "/telegram-campaigns" },
+  { id: "database", label: "DATABASE", icon: "Database", hotkey: "F4", path: "/database" },
 ] as const;
 
 /**

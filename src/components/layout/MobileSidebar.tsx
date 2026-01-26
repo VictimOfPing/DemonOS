@@ -8,6 +8,7 @@ import {
   LayoutDashboard, 
   Bot, 
   Database, 
+  Send,
   Menu,
   X,
   Plus,
@@ -21,6 +22,7 @@ const iconMap = {
   LayoutDashboard,
   Bot,
   Database,
+  Send,
 } as const;
 
 interface Site {

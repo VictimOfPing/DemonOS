@@ -34,6 +34,8 @@ export const ACTOR_IDS = {
   FACEBOOK_GROUP_MEMBER: "easyapi/facebook-group-members-scraper",
   /** thenetaji/instagram-followers-scraper - Instagram Followers Scraper */
   INSTAGRAM_FOLLOWERS: "thenetaji/instagram-followers-scraper",
+  /** scraping_solutions/instagram-scraper-followers-following-no-cookies - Alternative Instagram scraper */
+  INSTAGRAM_FOLLOWERS_ALT: "scraping_solutions/instagram-scraper-followers-following-no-cookies",
 } as const;
 
 /**

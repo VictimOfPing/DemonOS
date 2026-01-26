@@ -3,7 +3,7 @@
  * Configured clients for browser and server-side usage
  */
 
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
 
 // Get environment variables with fallbacks for build-time safety
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
@@ -14,7 +14,7 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
  * Supabase client for browser/client-side usage
  * Uses anon key with RLS policies
  */
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase: SupabaseClient = createSupabaseClient(supabaseUrl, supabaseAnonKey);
 
 /**
  * Supabase admin client for server-side usage
@@ -22,7 +22,7 @@ export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKe
  * Only use in API routes, never expose to client
  */
 export const supabaseAdmin: SupabaseClient | null = supabaseServiceKey
-  ? createClient(supabaseUrl, supabaseServiceKey, {
+  ? createSupabaseClient(supabaseUrl, supabaseServiceKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
@@ -41,4 +41,13 @@ export function getServerSupabase(): SupabaseClient {
     return supabase;
   }
   return supabaseAdmin;
+}
+
+/**
+ * Creates a Supabase client instance
+ * Returns admin client for server-side operations when available
+ * This is a convenience wrapper for compatibility with the Telegram module
+ */
+export function createClient(): SupabaseClient {
+  return getServerSupabase();
 }

@@ -143,11 +143,13 @@ function detectScraperType(actorId?: string, actorName?: string): string {
     return "facebook";
   }
   
-  // Instagram detection
+  // Instagram detection - includes multiple actors
   if (
     id.includes("instagram") ||
     name.includes("instagram") ||
-    id.includes("thenetaji")
+    id.includes("thenetaji") ||
+    id.includes("scraping_solutions") ||
+    id.includes("scraping-solutions")
   ) {
     return "instagram";
   }
@@ -204,27 +206,53 @@ export async function checkRunStatus(runId: string): Promise<MonitoredRun | null
   
   try {
     // Get run info from Apify
-    const apifyRun = await getRunStatus(runId);
+    let apifyRun;
+    try {
+      apifyRun = await getRunStatus(runId);
+    } catch (apifyError) {
+      // If Apify returns 404, the run might have been deleted - mark as failed
+      const errorMsg = apifyError instanceof Error ? apifyError.message : "Unknown error";
+      logger.warn(`Apify API error for run ${runId}: ${errorMsg}`);
+      
+      if (errorMsg.includes("not found") || errorMsg.includes("404")) {
+        // Mark the run as failed in database since it doesn't exist in Apify
+        const { error: updateError } = await supabase
+          .from("scraper_runs")
+          .update({
+            status: "failed",
+            error_message: "Run not found in Apify - may have been deleted",
+          })
+          .eq("run_id", runId);
+        
+        if (updateError) {
+          logger.error(`Failed to update run ${runId} status to failed`, updateError);
+        } else {
+          logger.info(`Marked run ${runId} as failed (not found in Apify)`);
+        }
+      }
+      return null;
+    }
     
     // Get database record
-    const { data: dbRun } = await supabase
+    const { data: dbRun, error: dbError } = await supabase
       .from("scraper_runs")
       .select("*")
       .eq("run_id", runId)
       .single();
 
-    if (!dbRun) {
-      logger.warn(`Run ${runId} not found in database`);
+    if (dbError || !dbRun) {
+      logger.warn(`Run ${runId} not found in database: ${dbError?.message || "no record"}`);
       return null;
     }
 
     const newDbStatus = mapApifyToDbStatus(apifyRun.status as ApifyRunStatus);
     const isFinished = isFinishedStatus(apifyRun.status as ApifyRunStatus);
     const statusChanged = dbRun.status !== newDbStatus;
+    const itemsChanged = dbRun.items_count !== apifyRun.itemsCount;
 
-    // Update database if status changed
-    if (statusChanged || dbRun.items_count !== apifyRun.itemsCount) {
-      await supabase
+    // Update database if status or items changed
+    if (statusChanged || itemsChanged) {
+      const { error: updateError } = await supabase
         .from("scraper_runs")
         .update({
           status: newDbStatus,
@@ -235,8 +263,12 @@ export async function checkRunStatus(runId: string): Promise<MonitoredRun | null
         })
         .eq("run_id", runId);
 
-      if (statusChanged) {
-        logger.info(`Run ${runId} status changed: ${dbRun.status} -> ${newDbStatus}`);
+      if (updateError) {
+        logger.error(`Failed to update run ${runId} in database`, updateError);
+      } else if (statusChanged) {
+        logger.info(`Run ${runId} status changed: ${dbRun.status} -> ${newDbStatus} (items: ${apifyRun.itemsCount})`);
+      } else if (itemsChanged) {
+        logger.info(`Run ${runId} items updated: ${dbRun.items_count} -> ${apifyRun.itemsCount}`);
       }
     }
 
@@ -249,7 +281,7 @@ export async function checkRunStatus(runId: string): Promise<MonitoredRun | null
       itemsCount: apifyRun.itemsCount,
       datasetId: apifyRun.datasetId,
       isFinished,
-      wasUpdated: statusChanged,
+      wasUpdated: statusChanged || itemsChanged,
       dataSaved: false,
     };
   } catch (error) {
@@ -547,10 +579,11 @@ export async function monitorActiveRuns(options: {
   const supabase = getServerSupabase();
   
   // Get all active runs AND recently completed runs with 0 items (need sync)
+  // Also include timed_out runs with 0 items since they may have data to save
   const { data: activeRuns, error } = await supabase
     .from("scraper_runs")
     .select("run_id, id, dataset_id, status, items_count, actor_id")
-    .or("status.in.(pending,running),and(status.eq.succeeded,items_count.eq.0)");
+    .or("status.in.(pending,running),and(status.eq.succeeded,items_count.eq.0),and(status.eq.timed_out,items_count.eq.0)");
 
   if (error) {
     logger.error("Failed to fetch active runs", error);
@@ -558,8 +591,11 @@ export async function monitorActiveRuns(options: {
   }
 
   if (!activeRuns || activeRuns.length === 0) {
+    logger.info("No active runs to monitor");
     return { checked: 0, updated: 0, completed: 0, dataSaved: 0, runs: [] };
   }
+  
+  logger.info(`Monitoring ${activeRuns.length} runs: ${activeRuns.map(r => r.run_id).join(", ")}`);
 
   const results: MonitoredRun[] = [];
   let updated = 0;
@@ -581,9 +617,14 @@ export async function monitorActiveRuns(options: {
       if (result.isFinished) {
         completed++;
 
-        // Auto-save data on successful completion
-        if (autoSaveOnComplete && result.apifyStatus === "SUCCEEDED") {
+        // Auto-save data on successful completion or timed out runs with data
+        const shouldSaveData = autoSaveOnComplete && 
+          (result.apifyStatus === "SUCCEEDED" || 
+           (result.apifyStatus === "TIMED-OUT" && result.itemsCount > 0));
+           
+        if (shouldSaveData) {
           const scraperType = detectScraperType(run.actor_id);
+          logger.info(`Auto-saving data for run ${run.run_id} (${scraperType}): ${result.itemsCount} items`);
           const saveResult = await autoSaveRunData(run.id, result.datasetId, scraperType);
           if (saveResult.savedCount > 0) {
             result.dataSaved = true;
